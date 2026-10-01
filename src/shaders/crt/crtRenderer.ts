@@ -8,10 +8,10 @@ export const crtStyle = (variant: CrtVariant): CrtStyle => CRT_STYLES[variant] ?
 type Segment = { t: string; c: "p" | "d" | "a" | "h" };
 const segment = (text: string, color: Segment["c"] = "p"): Segment => ({ t: text, c: color }); const dots = (count: number) => "·".repeat(count);
 const LOG: Segment[][] = [
-  [segment("CAMPUS MAINFRAME  v9.1.1"), segment("   (c) 2026 Batch Node 104", "d")], [segment("CONSTRUCT Broadcast  Rev M  S/N NX-0101-0011", "d")], [],
+  [segment("CAMPUS MAINFRAME  v9.1.1"), segment("   (c) 2026 Batch Node MCA", "d")], [segment("CONSTRUCT Broadcast  Rev M  S/N NX-0101-0011", "d")], [],
   [segment("Hacking Classroom grid nodes "), segment(`${dots(12)} `, "d"), segment("OK", "a")], [segment("Neural Attendance Jack  0x000 "), segment(`${dots(10)} `, "d"), segment("ONLINE "), segment("OK", "a")], [segment("Pinging student seat signatures "), segment(`${dots(5)} `, "d"), segment("46 ready")],
   [segment("nav0  OPERATOR UPLINK SECURE ", "d"), segment(`${dots(6)} `, "d"), segment("READY", "a")], [segment("vis0  CODE RAIN DECRYPT 256bit ", "d"), segment("READY", "a")], [segment("net0  HARDLINE CONNECTION MAX ", "d"), segment(`${dots(4)} `, "d"), segment("LINK", "a")], [segment("red0  ANONYMOUS IDENTITY PROTOCOL ", "d"), segment(`${dots(2)} `, "d"), segment("ACTIVE", "a")],
-  [segment("Mounting /dev/classroom -> ROOM-104: "), segment(`${dots(4)} `, "d"), segment("OK", "a")], [segment("Loading 46-seat visual matrix "), segment(`${dots(5)} `, "d"), segment("OK", "a")], [segment("Syncing daily poll cutoff [ 08:00 AM ] "), segment(`${dots(2)} `, "d"), segment("OK", "a")], [segment("Locating anonymous peer sector "), segment(`${dots(6)} `, "d"), segment("100%")], [],
+  [segment("Mounting /dev/classroom -> DEVCLASS-MCA: "), segment(`${dots(4)} `, "d"), segment("OK", "a")], [segment("Loading 46-seat visual matrix "), segment(`${dots(5)} `, "d"), segment("OK", "a")], [segment("Syncing daily poll cutoff [ 08:00 AM ] "), segment(`${dots(2)} `, "d"), segment("OK", "a")], [segment("Locating anonymous peer sector "), segment(`${dots(6)} `, "d"), segment("100%")], [],
   [segment("SYSTEM GATEWAY  "), segment("ONLINE.", "h")], [segment("press "), segment("[ENTER]", "a"), segment(" to continue with Google if no account", "d")], [], [segment("enter username: ")],
 ];
 const COLORS = { p: { fill: "#8df0b4", glow: "rgba(28,236,132,0.95)" }, d: { fill: "#4f9a76", glow: "rgba(28,236,132,0.45)" }, a: { fill: "#ffba5e", glow: "rgba(255,150,52,0.95)" }, h: { fill: "#eafff3", glow: "rgba(120,255,190,0.95)" } };

@@ -53,14 +53,14 @@ const getSeatRowColor = (seatNum: number): number => {
   return 0x7c3aed;                    // Seat 46 Back Aisle: Amethyst Purple
 };
 
-// Bounding box: camera is strictly clamped so it can NEVER leave the classroom model
+// Bounding box: camera is kept within reasonable exploration bounds
 const ROOM_BOUNDS = {
-  minX: -8.2,
-  maxX: 7.0,
-  minY: 0.6,
-  maxY: 9.5, // Allows high-angle overview perspective matching reference photo without clamping
+  minX: -8.0,
+  maxX: 6.8,
+  minY: 0.8,
+  maxY: 12.0, // Allows elevated overview without clipping
   minZ: -8.8,
-  maxZ: 5.2,
+  maxZ: 10.0, // Allows pulling back comfortably in overview without wall occlusion
 };
 
 export const Classroom3D: React.FC<Classroom3DProps> = ({
@@ -88,6 +88,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
   const targetLookAtRef = useRef<THREE.Vector3 | null>(null);
   const smartBoardCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const smartBoardTextureRef = useRef<THREE.CanvasTexture | null>(null);
+  const backWallRef = useRef<THREE.Mesh | null>(null);
 
   // 1. Initialize Three.js Scene
   useEffect(() => {
@@ -105,7 +106,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
     // CAMERA (Calibrated to natural elevated auditorium perspective matching reference photo)
     const camera = new THREE.PerspectiveCamera(46, width / height, 0.25, 60);
-    camera.position.set(-1.0, 7.8, 3.8);
+    camera.position.set(-0.65, 7.2, 3.4);
     cameraRef.current = camera;
 
     // RENDERER (logarithmicDepthBuffer eliminates all micro-flickering)
@@ -130,8 +131,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     controls.maxPolarAngle = Math.PI / 2 - 0.04; // Never dip under the floor
     controls.minPolarAngle = 0.08;              // Never flip over the ceiling
     controls.minDistance = 0.2;
-    controls.maxDistance = 16;
-    controls.target.set(-1.0, 0.6, -2.5);
+    controls.maxDistance = 18;
+    controls.target.set(-0.65, 0.6, -2.4);
     controlsRef.current = controls;
 
     // -------------------------------------------------------------
@@ -296,11 +297,11 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     scene.add(skirtLeft);
 
     // -------------------------------------------------------------
-    // RIGHT WALL: ARCHITECTURAL PIERS WITH GENEROUS WINDOW OPENINGS
+    // RIGHT WALL: ARCHITECTURAL PIERS WITH GENEROUS WINDOW OPENINGS & ENTRANCE
     // -------------------------------------------------------------
-    // Lower sill wall underneath all windows (y: 0 to 1.2m)
-    const rightWallSill = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 14.0), brightWallMat);
-    rightWallSill.position.set(7.35, 0.6, -2.35);
+    // Lower sill wall underneath windows (y: 0 to 1.2m, spans from Window 1 to back wall)
+    const rightWallSill = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 11.25), brightWallMat);
+    rightWallSill.position.set(7.35, 0.6, -0.975);
     rightWallSill.receiveShadow = true;
     scene.add(rightWallSill);
 
@@ -310,9 +311,9 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     rightWallLintel.receiveShadow = true;
     scene.add(rightWallLintel);
 
-    // Solid structural pier: Front corner to Window 1
-    const pierFront = new THREE.Mesh(new THREE.BoxGeometry(0.2, 4.2, 2.7), brightWallMat);
-    pierFront.position.set(7.35, 3.3, -7.95);
+    // Solid structural pier: Front corner to Window 1 (Full-height wall housing the entrance door)
+    const pierFront = new THREE.Mesh(new THREE.BoxGeometry(0.2, 6.2, 2.7), brightWallMat);
+    pierFront.position.set(7.35, 3.1, -7.95);
     pierFront.receiveShadow = true;
     scene.add(pierFront);
 
@@ -334,8 +335,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     pierBack.receiveShadow = true;
     scene.add(pierBack);
 
-    const skirtRight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, 13.9), skirtingMat);
-    skirtRight.position.set(7.23, 0.075, -2.35);
+    const skirtRight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, 11.25), skirtingMat);
+    skirtRight.position.set(7.23, 0.075, -0.975);
     scene.add(skirtRight);
 
     // Back Wall (z = 4.65) - Bright, airy collegiate ivory
@@ -343,6 +344,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     backWall.position.set(-0.65, 3.1, 4.65);
     backWall.receiveShadow = true;
     scene.add(backWall);
+    backWallRef.current = backWall;
 
     // -------------------------------------------------------------
     // SMART BOARD (Center of Front Wall with Dynamic Screen)
@@ -407,7 +409,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       bctx.fillStyle = '#e2e8f0';
       bctx.font = 'bold 15px monospace';
       bctx.textAlign = 'center';
-      bctx.fillText('ROOM 104 // APPLIED COMPUTING & DESIGN', 520, 52);
+      bctx.fillText('DEVCLASS MCA // ADVANCED COMPUTING & SOFTWARE ARCHITECTURE', 520, 52);
 
       // Main Announcement Banner
       bctx.fillStyle = '#f8fafc';
@@ -644,11 +646,12 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     // Note: The flickering black vent has been removed from front wall!
 
     // -------------------------------------------------------------
-    // LEFT WALL: HIGH-DETAIL ENTRANCE DOOR & NOTICE BOARD
+    // RIGHT WALL: HIGH-DETAIL ENTRANCE DOOR & ACCESSORIES
     // -------------------------------------------------------------
-    // Modern Architectural Classroom Door
+    // Modern Architectural Classroom Door (Mounted on opposite right wall)
     const doorGroup = new THREE.Group();
-    doorGroup.position.set(-8.5, 0, -6.6);
+    doorGroup.position.set(7.24, 0, -7.8);
+    doorGroup.rotation.y = Math.PI;
 
     // Recessed Outer Door Frame (Jamb)
     const frameMetalMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.4, metalness: 0.4 });
@@ -830,7 +833,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     // Poster 1: AI & Robotics Hackathon (Deep Indigo to Electric Cyan)
     const noticeTex1 = createNoticeTexture(
       'HACKATHON 2026',
-      'ROOM 104 • $50K PRIZE POOL',
+      'DEVCLASS MCA • $50K PRIZE POOL',
       'COMPUTING LAB',
       ['#312e81', '#0284c7'],
       '#ffffff'
@@ -1396,21 +1399,36 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
       // Smooth Camera Transitions when preset changes
       if (targetCamPosRef.current && targetLookAtRef.current) {
-        camera.position.lerp(targetCamPosRef.current, 0.05);
-        controls.target.lerp(targetLookAtRef.current, 0.05);
+        camera.position.lerp(targetCamPosRef.current, 0.08);
+        controls.target.lerp(targetLookAtRef.current, 0.08);
+        camera.lookAt(controls.target);
 
-        if (camera.position.distanceTo(targetCamPosRef.current) < 0.05) {
+        if (
+          camera.position.distanceTo(targetCamPosRef.current) < 0.03 &&
+          controls.target.distanceTo(targetLookAtRef.current) < 0.03
+        ) {
+          camera.position.copy(targetCamPosRef.current);
+          controls.target.copy(targetLookAtRef.current);
           targetCamPosRef.current = null;
           targetLookAtRef.current = null;
+          controls.update();
         }
+      } else {
+        // User manual OrbitControls manipulation
+        controls.update();
       }
 
-      // STRICT CONTAINMENT: Camera view angle can NEVER go out of the model
+      // STRICT CONTAINMENT: Camera view angle stays within comfortable bounds
       camera.position.x = THREE.MathUtils.clamp(camera.position.x, ROOM_BOUNDS.minX, ROOM_BOUNDS.maxX);
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, ROOM_BOUNDS.minY, ROOM_BOUNDS.maxY);
       camera.position.z = THREE.MathUtils.clamp(camera.position.z, ROOM_BOUNDS.minZ, ROOM_BOUNDS.maxZ);
 
-      controls.update();
+      // SMART OCCLUSION CULLING: Back wall is ONLY visible when viewing from the front of the classroom (like podium mode)
+      // When in overview or viewing from the rear (z >= 2.0), hide it completely so it never blocks the desks or viewport!
+      if (backWallRef.current) {
+        backWallRef.current.visible = camera.position.z < 2.0;
+      }
+
       renderer.render(scene, camera);
     };
     requestAnimationFrame(animate);
@@ -1495,10 +1513,10 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     setActivePreset(preset);
 
     if (preset === 'overview') {
-      // High-angle bird's-eye perspective matching reference photo:
-      // Perfectly frames all 46 desks in their color zones, the teacher's lectern (top-left), and central aisle
-      targetCamPosRef.current = new THREE.Vector3(-1.0, 7.8, 3.8);
-      targetLookAtRef.current = new THREE.Vector3(-1.0, 0.6, -2.5);
+      // High-angle bird's-eye perspective:
+      // Perfectly frames all 46 desks in their color zones, the teacher's lectern, and central aisle
+      targetCamPosRef.current = new THREE.Vector3(-0.65, 7.2, 3.4);
+      targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);
     } else if (preset === 'podium') {
       // First-person Professor's perspective standing behind the lectern looking out at all students
       targetCamPosRef.current = new THREE.Vector3(-4.4, 1.88, -8.25);

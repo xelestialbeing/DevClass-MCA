@@ -235,7 +235,7 @@ export function App() {
           >
             <div>{authStatusMessage}</div>
             <div style={{ fontSize: '0.72rem', opacity: 0.7, marginTop: '6px' }}>
-              ENCRYPTED PROTOCOL ACTIVE // ROOM-104
+              ENCRYPTED PROTOCOL ACTIVE // DEVCLASS-MCA
             </div>
           </div>
         </div>
@@ -259,7 +259,7 @@ export function App() {
           <header className="top-nav-bar">
             <div className="system-status-badge">
               <span className="status-dot"></span>
-              <span>NODE: ROOM-104 [ONLINE]</span>
+              <span>NODE: DEVCLASS-MCA [ONLINE]</span>
             </div>
 
             <div className="top-auth-buttons">

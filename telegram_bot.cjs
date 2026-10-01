@@ -1,5 +1,5 @@
 /**
- * Telegram Verification Bot Worker for Room 104
+ * Telegram Verification Bot Worker for DevClass MCA
  * Run with: node telegram_bot.cjs
  * Handles 1-tap cryptographic phone number sharing and updates Supabase.
  */
@@ -33,7 +33,7 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 
-console.log('🤖 Telegram Verification Bot initializing for Room 104...');
+console.log('🤖 Telegram Verification Bot initializing for DevClass MCA...');
 console.log(`📡 Linked to Supabase: ${SUPABASE_URL}`);
 console.log(`🛡 Admin Chat Authorization: ${ADMIN_CHAT_ID ? `Enforced (Chat ID: ${ADMIN_CHAT_ID})` : '⚠ NOT SET'}`);
 
@@ -220,7 +220,7 @@ async function pollUpdates() {
                 console.warn(`🚨 Security: Unauthorized approval button click by ${adminName} (ID: ${cb.from.id})`);
                 await callTelegram('answerCallbackQuery', {
                   callback_query_id: cb.id,
-                  text: '⛔ Access Denied: Only Room 104 administrators can approve students.',
+                  text: '⛔ Access Denied: Only DevClass MCA administrators can approve students.',
                   show_alert: true,
                 });
                 continue;
@@ -241,7 +241,7 @@ async function pollUpdates() {
               await callTelegram('answerCallbackQuery', {
                 callback_query_id: cb.id,
                 text: isApprove
-                  ? `✅ Student @${cleanUser} is APPROVED!\nRoom 104 access unlocked.`
+                  ? `✅ Student @${cleanUser} is APPROVED!\nDevClass MCA access unlocked.`
                   : `❌ Student @${cleanUser} is REJECTED.`,
                 show_alert: true,
               });
@@ -270,7 +270,7 @@ async function pollUpdates() {
                 await callTelegram('sendMessage', {
                   chat_id: chatId,
                   text: isApprove
-                    ? `🎉 *ADMIN APPROVAL CONFIRMED*\n\nStudent: *@${cleanUser}*\nStatus: *Active Verified Member*\nDecision by: *${adminName}*\n\nAccount is now active in Room 104 with voting and seat reservation permissions.`
+                    ? `🎉 *ADMIN APPROVAL CONFIRMED*\n\nStudent: *@${cleanUser}*\nStatus: *Active Verified Member*\nDecision by: *${adminName}*\n\nAccount is now active in DevClass MCA with voting and seat reservation permissions.`
                     : `❌ *ADMIN REJECTION CONFIRMED*\n\nStudent: *@${cleanUser}*\nStatus: *Access Restricted*\nDecision by: *${adminName}*`,
                   parse_mode: 'Markdown',
                 });
@@ -304,7 +304,7 @@ async function pollUpdates() {
               console.warn(`🚨 Security: Unauthorized command attempt "${text}" from ${senderName} (Chat: ${chatId}, ID: ${msg.from?.id})`);
               await callTelegram('sendMessage', {
                 chat_id: chatId,
-                text: '⛔ *Access Denied:* You are not authorized to execute administrator commands in Room 104.',
+                text: '⛔ *Access Denied:* You are not authorized to execute administrator commands in DevClass MCA.',
                 parse_mode: 'Markdown',
               });
               continue;
@@ -325,7 +325,7 @@ async function pollUpdates() {
               await setStudentApproval(target, 'verified');
               await callTelegram('sendMessage', {
                 chat_id: chatId,
-                text: `✅ *Student @${target} has been APPROVED!*\n\nAccount is now active in Room 104 with full voting and seat reservation permissions.`,
+                text: `✅ *Student @${target} has been APPROVED!*\n\nAccount is now active in DevClass MCA with full voting and seat reservation permissions.`,
                 parse_mode: 'Markdown',
               });
             }
@@ -390,9 +390,9 @@ async function pollUpdates() {
             const sendRes = await callTelegram('sendMessage', {
               chat_id: chatId,
               text:
-                `🎓 *ROOM 104 STUDENT VERIFICATION*\n\n` +
+                `🎓 *DEVCLASS MCA STUDENT VERIFICATION*\n\n` +
                 `Welcome, *${senderName}*!\n\n` +
-                `Tap the green button below to securely share your phone number with the classroom registration system.\n\n` +
+                `Tap the green button below to securely share your phone number with the DevClass MCA registration system.\n\n` +
                 `This cryptographically verifies your identity without SMS delays.`,
               parse_mode: 'Markdown',
               reply_markup: {

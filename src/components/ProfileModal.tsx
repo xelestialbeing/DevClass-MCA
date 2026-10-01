@@ -167,7 +167,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
           <div className="profile-info-item">
             <span className="info-label">Seat Registry</span>
-            <span className="info-value">Room 104 (Batch 2026)</span>
+            <span className="info-value">DevClass MCA (Batch 2026)</span>
           </div>
         </div>
 

@@ -23,7 +23,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
   const [user, setUser] = useState<UserProfile | undefined | null>(currentUser);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [mySeat, setMySeat] = useState<number | null>(null);
-  const [boardMessage, setBoardMessage] = useState("CLASSROOM S01 - WELCOME");
+  const [boardMessage, setBoardMessage] = useState("DEVCLASS MCA - WELCOME");
   const [modalConfig, setModalConfig] = useState<SpatialModalProps | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isVerifyingStatus, setIsVerifyingStatus] = useState(false);
@@ -54,7 +54,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           return updated;
         });
         setModalConfig(null);
-        addToast('Administrator clearance confirmed! Room 104 access unlocked.', 'success', 'Approval Granted');
+        addToast('Administrator clearance confirmed! DevClass MCA access unlocked.', 'success', 'Approval Granted');
       } else {
         addToast('Verification is still pending in Telegram bot queue.', 'info', 'Status: Pending');
       }
@@ -68,13 +68,13 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
       isOpen: true,
       onClose: () => setModalConfig(null),
       type: 'security',
-      badge: 'CLEARANCE PENDING // ROOM 104',
+      badge: 'CLEARANCE PENDING // DEVCLASS MCA',
       title: 'Account Pending Admin Verification',
       description: 'Your biometric face scan and student registration are currently in queue for administrator review. Seat reservations, daily attendance voting, and campus communication unlock immediately upon verification.',
       meta: [
         { label: 'STUDENT HANDLE', value: `@${user?.username || 'Student'}` },
         { label: 'SECURITY STATUS', value: 'Pending Admin Review' },
-        { label: 'CLASSROOM HALL', value: 'Room 104 Auditorium' },
+        { label: 'CLASSROOM HALL', value: 'DevClass MCA Hall' },
         { label: 'DISPATCH BOT', value: '@JakpotGamingBot' },
       ],
       primaryAction: {
@@ -116,7 +116,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
 
         if (serverApproved) {
           setModalConfig(null);
-          addToast('Account verified by administrator! Room 104 access unlocked.', 'success', 'Approved');
+          addToast('Account verified by administrator! DevClass MCA access unlocked.', 'success', 'Approved');
         }
       }
     };
@@ -138,12 +138,8 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     };
   }, [isApproved, user?.id, user?.username]);
 
-  // Mocked state for other students
-  const [votes, setVotes] = useState<Vote[]>([
-    { seatNumber: 2, userId: 'u1', username: 'Alex', avatar: 'A' },
-    { seatNumber: 15, userId: 'u2', username: 'Sam', avatar: 'S' },
-    { seatNumber: 42, userId: 'u3', username: 'Jordan', avatar: 'J' },
-  ]);
+  // Live classroom seat votes (starts clean with 0/46 occupied)
+  const [votes, setVotes] = useState<Vote[]>([]);
 
   const totalComing = votes.length + (mySeat !== null ? 1 : 0);
 
@@ -199,7 +195,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
         <div className="hud-island hud-brand-card">
           <div className="hud-brand-header">
             <span className="hud-live-dot" />
-            <span className="hud-room-code">ROOM 104</span>
+            <span className="hud-room-code">DEVCLASS MCA</span>
             <span className="hud-batch-badge">2026</span>
             <span className={`hud-account-status ${isApproved ? 'active' : 'pending'}`} title={isApproved ? 'Active Verified Account' : 'Account Pending Admin Verification'}>
               {isApproved ? '● Active' : '⏳ Pending Approval'}
@@ -246,7 +242,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
                 showPendingApprovalNotice();
                 return;
               }
-              addToast('Connecting to Room 104 campus frequency...', 'info', 'Chat Channel');
+              addToast('Connecting to DevClass MCA frequency...', 'info', 'Chat Channel');
             }}
             title="Open Campus Chat"
           >

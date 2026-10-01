@@ -116,7 +116,7 @@ export const supabaseService = {
     const clean = base.replace(/[^a-z0-9_]/gi, '');
     const rand = Math.floor(10 + Math.random() * 89);
     return [
-      `${clean}_104`,
+      `${clean}_mca`,
       `the_${clean}`,
       `${clean}_${rand}`,
       `cyber_${clean}`,
@@ -235,7 +235,7 @@ export const supabaseService = {
 
       formData.append(
         'caption',
-        `🚨 *NEW STUDENT REGISTRATION - ROOM 104*\n\n` +
+        `🚨 *NEW STUDENT REGISTRATION - DEVCLASS MCA*\n\n` +
         `👤 *Username:* @${cleanUser}\n` +
         `📱 *Phone:* \`${cleanPhone}\`\n` +
         `💬 *Bio:* _${payload.catchphrase || 'No catchphrase'}_\n` +

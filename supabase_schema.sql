@@ -24,10 +24,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS unique_users_username_lower ON public.users (L
 CREATE INDEX IF NOT EXISTS idx_users_phone ON public.users (phone_number);
 CREATE INDEX IF NOT EXISTS idx_users_status ON public.users (face_scan_status);
 
--- 2. Daily Polls Table for Room 104
+-- 2. Daily Polls Table for DevClass MCA
 CREATE TABLE IF NOT EXISTS public.daily_polls (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    classroom_code VARCHAR(20) DEFAULT 'ROOM-104',
+    classroom_code VARCHAR(20) DEFAULT 'DEVCLASS-MCA',
     poll_date DATE NOT NULL DEFAULT CURRENT_DATE,
     cutoff_time TIME DEFAULT '08:00:00',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
