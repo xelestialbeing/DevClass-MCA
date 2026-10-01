@@ -1,0 +1,450 @@
+/* ==============================================================================
+   SPATIAL NOTIFICATION & MODAL SYSTEM (AWWWARDS-TIER GLASSMORPHISM)
+   ============================================================================== */
+
+.spatial-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(3, 7, 18, 0.78);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  animation: spatialFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes spatialFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.spatial-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  background: radial-gradient(120% 120% at 50% 0%, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 65%, rgba(8, 12, 22, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  padding: 2rem 2.25rem 2.25rem;
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 24px 64px -12px rgba(0, 0, 0, 0.8),
+    0 12px 28px -6px rgba(0, 0, 0, 0.6);
+  color: #f8fafc;
+  overflow: hidden;
+  animation: spatialSlideUp 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes spatialSlideUp {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Ambient Top Glow Aperture */
+.spatial-aperture-glow {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  height: 80px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.35) 0%, rgba(245, 158, 11, 0) 70%);
+  filter: blur(28px);
+  pointer-events: none;
+}
+
+.spatial-modal-card.type-info .spatial-aperture-glow {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.35) 0%, rgba(6, 182, 212, 0) 70%);
+}
+
+.spatial-modal-card.type-success .spatial-aperture-glow {
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.35) 0%, rgba(16, 185, 129, 0) 70%);
+}
+
+.spatial-modal-card.type-warning .spatial-aperture-glow {
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.35) 0%, rgba(239, 68, 68, 0) 70%);
+}
+
+/* Header */
+.spatial-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.spatial-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  font-family: 'Space Grotesk', ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fbbf24;
+}
+
+.spatial-modal-card.type-info .spatial-badge-pill {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.spatial-modal-card.type-success .spatial-badge-pill {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.25);
+}
+
+.spatial-radar-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+  animation: radarBlink 1.6s ease-in-out infinite;
+}
+
+@keyframes radarBlink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.spatial-close-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.spatial-close-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+  transform: scale(1.06);
+}
+
+/* Central Orbit Visual */
+.spatial-icon-orbit {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spatial-orbit-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+
+.spatial-orbit-ring.ring-outer {
+  width: 80px;
+  height: 80px;
+  animation: orbitRotate 18s linear infinite;
+}
+
+.spatial-orbit-ring.ring-inner {
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+@keyframes orbitRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spatial-icon-core {
+  position: relative;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+  color: #fbbf24;
+}
+
+.spatial-modal-card.type-info .spatial-icon-core {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.spatial-modal-card.type-success .spatial-icon-core {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.spatial-modal-card.type-warning .spatial-icon-core {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+/* Content Area */
+.spatial-content-area {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.spatial-title {
+  margin: 0 0 0.65rem;
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+  line-height: 1.3;
+}
+
+.spatial-description {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: #94a3b8;
+}
+
+/* Meta Grid */
+.spatial-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1.75rem;
+  padding: 0.85rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+}
+
+.spatial-meta-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.spatial-meta-label {
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.spatial-meta-value {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+/* Actions Row */
+.spatial-actions-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.spatial-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 44px;
+  padding: 0 1.25rem;
+  border-radius: 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.spatial-btn.primary {
+  background: #f8fafc;
+  border: 1px solid #ffffff;
+  color: #090d16;
+  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.15);
+}
+
+.spatial-btn.primary:hover:not(:disabled) {
+  background: #e2e8f0;
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.25);
+}
+
+.spatial-btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.spatial-btn.primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spatial-btn.secondary {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
+
+.spatial-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.spatial-btn-loader {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(9, 13, 22, 0.2);
+  border-top-color: #090d16;
+  animation: btnSpin 0.7s linear infinite;
+}
+
+@keyframes btnSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==============================================================================
+   SPATIAL FLOATING TOAST SYSTEM
+   ============================================================================== */
+
+.spatial-toast-container {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-width: 380px;
+  pointer-events: none;
+}
+
+.spatial-toast-item {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1.15rem;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 
+    0 12px 32px -4px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: #f8fafc;
+  animation: toastPop 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes toastPop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.spatial-toast-accent {
+  width: 4px;
+  height: 24px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  flex-shrink: 0;
+}
+
+.spatial-toast-item.toast-warning .spatial-toast-accent {
+  background: #fbbf24;
+  box-shadow: 0 0 8px #fbbf24;
+}
+
+.spatial-toast-item.toast-error .spatial-toast-accent {
+  background: #f87171;
+  box-shadow: 0 0 8px #f87171;
+}
+
+.spatial-toast-item.toast-success .spatial-toast-accent {
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+}
+
+.spatial-toast-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.spatial-toast-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+
+.spatial-toast-message {
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #e2e8f0;
+}
+
+.spatial-toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.spatial-toast-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}

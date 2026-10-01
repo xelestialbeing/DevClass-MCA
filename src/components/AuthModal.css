@@ -1,0 +1,564 @@
+/* Terminal Cyber Auth Modal */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 10, 6, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: authFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes authFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.auth-modal {
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #04120a;
+  border: 1px solid rgba(141, 240, 180, 0.4);
+  box-shadow: 0 0 35px rgba(28, 236, 132, 0.2), inset 0 0 15px rgba(28, 236, 132, 0.05);
+  border-radius: 8px;
+  padding: 24px;
+  color: #8df0b4;
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(141, 240, 180, 0.3) transparent;
+}
+
+.auth-modal::-webkit-scrollbar {
+  width: 6px;
+}
+.auth-modal::-webkit-scrollbar-thumb {
+  background: rgba(141, 240, 180, 0.3);
+  border-radius: 3px;
+}
+
+/* Cyber scanline effect on modal */
+.auth-modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #8df0b4, transparent);
+  box-shadow: 0 0 10px #8df0b4;
+}
+
+.auth-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(141, 240, 180, 0.2);
+}
+
+.auth-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #8df0b4;
+  text-shadow: 0 0 8px rgba(28, 236, 132, 0.7);
+  margin: 0;
+}
+
+.auth-close-btn {
+  background: transparent;
+  border: 1px solid rgba(141, 240, 180, 0.3);
+  color: #8df0b4;
+  font-family: monospace;
+  font-size: 1rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.auth-close-btn:hover {
+  background: rgba(28, 236, 132, 0.2);
+  border-color: #8df0b4;
+}
+
+/* Tabs */
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.auth-tab {
+  background: rgba(28, 236, 132, 0.06);
+  border: 1px solid rgba(141, 240, 180, 0.2);
+  color: #4f9a76;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border-radius: 4px;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  min-height: 44px;
+}
+
+.auth-tab.active {
+  background: rgba(28, 236, 132, 0.18);
+  border-color: #8df0b4;
+  color: #8df0b4;
+  box-shadow: 0 0 10px rgba(28, 236, 132, 0.25);
+}
+
+/* Google OAuth Button */
+.google-auth-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  padding: 12px;
+  font-family: monospace;
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 46px;
+}
+
+.google-auth-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+}
+
+.google-auth-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 16px 0;
+  color: #4f9a76;
+  font-size: 0.72rem;
+  letter-spacing: 1.5px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid rgba(141, 240, 180, 0.2);
+}
+
+.auth-divider span {
+  padding: 0 10px;
+}
+
+/* Form Fields */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.form-label {
+  font-size: 0.74rem;
+  color: #8df0b4;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+/* Locked Phone Badge */
+.phone-lock-badge {
+  font-size: 0.68rem;
+  color: #ffba5e;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.phone-lock-badge.locked {
+  color: #8df0b4;
+}
+
+/* Telegram 1-Tap Phone Verification Styles */
+.telegram-verify-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 136, 204, 0.08);
+  border: 1px solid rgba(0, 136, 204, 0.35);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.telegram-verify-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #0088cc;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 44px;
+  box-shadow: 0 0 15px rgba(0, 136, 204, 0.3);
+}
+
+.telegram-verify-btn:hover {
+  background: #0099e6;
+  box-shadow: 0 0 20px rgba(0, 136, 204, 0.5);
+  transform: translateY(-1px);
+}
+
+.telegram-waiting-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  color: #70c7ff;
+}
+
+.telegram-pin-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.telegram-pin-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(0, 136, 204, 0.4);
+  color: #70c7ff;
+  font-family: monospace;
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border-radius: 4px;
+  outline: none;
+  min-height: 40px;
+}
+
+.telegram-pin-btn {
+  background: rgba(0, 136, 204, 0.25);
+  border: 1px solid #0088cc;
+  color: #70c7ff;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  min-height: 40px;
+  transition: all 0.2s ease;
+}
+
+.telegram-pin-btn:hover {
+  background: #0088cc;
+  color: #fff;
+}
+
+.form-input {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(141, 240, 180, 0.3);
+  color: #8df0b4;
+  font-family: monospace;
+  font-size: 0.95rem;
+  padding: 12px 14px;
+  border-radius: 4px;
+  outline: none;
+  transition: all 0.2s ease;
+  min-height: 44px;
+}
+
+.form-input:focus:not(:disabled) {
+  border-color: #8df0b4;
+  box-shadow: 0 0 10px rgba(28, 236, 132, 0.4);
+  background: rgba(0, 20, 10, 0.8);
+}
+
+.form-input:disabled {
+  background: rgba(10, 30, 20, 0.4);
+  border-color: rgba(141, 240, 180, 0.2);
+  color: #68ab8b;
+  cursor: not-allowed;
+}
+
+.form-input::placeholder {
+  color: #3b7056;
+}
+
+/* FAANG Username Status Indicator */
+.username-status {
+  font-size: 0.7rem;
+  letter-spacing: 0.5px;
+}
+
+.username-status.available {
+  color: #8df0b4;
+  text-shadow: 0 0 8px rgba(28, 236, 132, 0.6);
+}
+
+.username-status.taken {
+  color: #ff8888;
+}
+
+.username-status.checking {
+  color: #ffba5e;
+}
+
+/* Username Suggestions Row */
+.suggestions-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.suggestions-title {
+  font-size: 0.68rem;
+  color: #4f9a76;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.suggestion-chip {
+  background: rgba(28, 236, 132, 0.1);
+  border: 1px solid rgba(141, 240, 180, 0.3);
+  color: #8df0b4;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.suggestion-chip:hover {
+  background: rgba(28, 236, 132, 0.25);
+  border-color: #8df0b4;
+}
+
+/* Face ID Section Box */
+.face-id-section {
+  background: rgba(0, 18, 10, 0.5);
+  border: 1px solid rgba(141, 240, 180, 0.25);
+  border-radius: 6px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.face-id-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.face-id-title {
+  font-size: 0.78rem;
+  color: #8df0b4;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.face-status-badge {
+  font-size: 0.68rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid currentColor;
+}
+
+.face-status-badge.captured {
+  color: #8df0b4;
+  border-color: #8df0b4;
+  background: rgba(28, 236, 132, 0.1);
+}
+
+.face-status-badge.missing {
+  color: #ffba5e;
+  border-color: #ffba5e;
+}
+
+.face-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(4, 25, 14, 0.6);
+  border: 1px solid rgba(141, 240, 180, 0.3);
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.face-thumbnail {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #8df0b4;
+}
+
+.face-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.face-info-title {
+  font-size: 0.78rem;
+  color: #8df0b4;
+  font-weight: 700;
+}
+
+.face-info-subtitle {
+  font-size: 0.68rem;
+  color: #4f9a76;
+}
+
+.face-retake-btn {
+  background: transparent;
+  border: 1px solid rgba(141, 240, 180, 0.3);
+  color: #8df0b4;
+  font-family: monospace;
+  font-size: 0.72rem;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.face-retake-btn:hover {
+  background: rgba(28, 236, 132, 0.2);
+}
+
+/* Telegram Admin Verification Banner */
+.telegram-notice-box {
+  background: rgba(0, 136, 204, 0.12);
+  border: 1px solid rgba(0, 136, 204, 0.4);
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: #70c7ff;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Submit Action Button */
+.auth-submit-btn {
+  margin-top: 6px;
+  background: rgba(28, 236, 132, 0.2);
+  border: 1px solid #8df0b4;
+  color: #8df0b4;
+  padding: 14px;
+  font-family: monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 15px rgba(28, 236, 132, 0.25);
+  min-height: 48px;
+}
+
+.auth-submit-btn:hover:not(:disabled) {
+  background: #8df0b4;
+  color: #03100a;
+  box-shadow: 0 0 25px rgba(28, 236, 132, 0.6);
+}
+
+.auth-submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.auth-error {
+  background: rgba(255, 60, 60, 0.15);
+  border: 1px solid #ff4444;
+  color: #ff8888;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  margin-bottom: 12px;
+}
+
+.auth-footer-hint {
+  margin-top: 14px;
+  font-size: 0.75rem;
+  color: #4f9a76;
+  text-align: center;
+}
+
+.auth-footer-hint button {
+  background: none;
+  border: none;
+  color: #8df0b4;
+  text-decoration: underline;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 0.75rem;
+  padding: 0 4px;
+}
