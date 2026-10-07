@@ -1196,34 +1196,6 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
     let seatCounter = 1;
     const deskMap = new Map<number, { group: THREE.Group; tablet: THREE.Mesh; seat: THREE.Mesh }>();
-
-    // Build Left Bank (5 rows x 5 cols = 25 desks)
-    for (let r = 0; r < rowsZ.length; r++) {
-      for (let c = 0; c < leftCols.length; c++) {
-        if (seatCounter > 46) break;
-        const seatNum = seatCounter++;
-        const posX = leftCols[c];
-        const posZ = rowsZ[r];
-        createDesk(seatNum, posX, posZ);
-      }
-    }
-
-    // Build Right Bank (5 rows x 4 cols = 20 desks)
-    for (let r = 0; r < rowsZ.length; r++) {
-      for (let c = 0; c < rightCols.length; c++) {
-        if (seatCounter > 45) break;
-        const seatNum = seatCounter++;
-        const posX = rightCols[c];
-        const posZ = rowsZ[r];
-        createDesk(seatNum, posX, posZ);
-      }
-    }
-
-    // Seat 46: Aisle desk in back row
-    if (seatCounter <= 46) {
-      createDesk(46, rightCols[0], 2.4);
-    }
-
     const interactiveTargets: THREE.Object3D[] = [];
 
     function createDesk(seatNum: number, x: number, z: number) {
@@ -1325,6 +1297,33 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
       // Register all touchable objects for raycaster
       interactiveTargets.push(hitBox, tabletMesh, seatMesh, backMesh);
+    }
+
+    // Build Left Bank (5 rows x 5 cols = 25 desks)
+    for (let r = 0; r < rowsZ.length; r++) {
+      for (let c = 0; c < leftCols.length; c++) {
+        if (seatCounter > 46) break;
+        const seatNum = seatCounter++;
+        const posX = leftCols[c];
+        const posZ = rowsZ[r];
+        createDesk(seatNum, posX, posZ);
+      }
+    }
+
+    // Build Right Bank (5 rows x 4 cols = 20 desks)
+    for (let r = 0; r < rowsZ.length; r++) {
+      for (let c = 0; c < rightCols.length; c++) {
+        if (seatCounter > 45) break;
+        const seatNum = seatCounter++;
+        const posX = rightCols[c];
+        const posZ = rowsZ[r];
+        createDesk(seatNum, posX, posZ);
+      }
+    }
+
+    // Seat 46: Aisle desk in back row
+    if (seatCounter <= 46) {
+      createDesk(46, rightCols[0], 2.4);
     }
 
     deskMeshesRef.current = deskMap;
