@@ -1,2 +1,4 @@
 /node_modules
 .env
+CICD_ISOLATION_GUIDE.md
+docker-compose.runner.example.yml

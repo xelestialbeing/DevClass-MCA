@@ -562,3 +562,40 @@
   font-size: 0.75rem;
   padding: 0 4px;
 }
+
+/* Mobile & Android Optimization */
+@media (max-width: 640px) {
+  .auth-overlay {
+    padding: 10px;
+    align-items: flex-end;
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+  }
+
+  .auth-modal {
+    max-height: 92dvh;
+    padding: 18px 14px;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .auth-header {
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+  }
+
+  .auth-title {
+    font-size: 0.95rem;
+    letter-spacing: 1px;
+  }
+
+  .auth-input {
+    font-size: 16px !important; /* Prevents auto-zoom on Android & mobile browsers */
+    min-height: 44px;
+  }
+
+  .auth-submit-btn {
+    min-height: 48px;
+    padding: 12px;
+    font-size: 0.9rem;
+  }
+}
+

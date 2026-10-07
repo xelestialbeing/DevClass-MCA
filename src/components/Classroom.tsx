@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ProfileModal } from './ProfileModal';
 import { Classroom3D, StudentVote } from './Classroom3D';
 import { UserProfile, supabaseService } from '../lib/supabase';
@@ -21,9 +21,20 @@ interface ToastItem {
 
 export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
   const [user, setUser] = useState<UserProfile | undefined | null>(currentUser);
+  const userKey = user?.username || user?.id || 'guest';
+  const seatStorageKey = `college_seat_${userKey}`;
+  const [mySeat, setMySeat] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(`college_seat_${currentUser?.username || currentUser?.id || 'guest'}`);
+      if (stored) {
+        const val = parseInt(stored, 10);
+        if (val >= 1 && val <= 46) return val;
+      }
+    } catch {}
+    return null;
+  });
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [mySeat, setMySeat] = useState<number | null>(null);
-  const [boardMessage, setBoardMessage] = useState("DEVCLASS MCA - WELCOME");
+  const [boardMessage] = useState("DEVCLASS MCA - WELCOME");
   const [modalConfig, setModalConfig] = useState<SpatialModalProps | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isVerifyingStatus, setIsVerifyingStatus] = useState(false);
@@ -139,7 +150,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
   }, [isApproved, user?.id, user?.username]);
 
   // Live classroom seat votes (starts clean with 0/46 occupied)
-  const [votes, setVotes] = useState<Vote[]>([]);
+  const [votes] = useState<Vote[]>([]);
 
   const totalComing = votes.length + (mySeat !== null ? 1 : 0);
 
@@ -158,12 +169,26 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     if (mySeat === seatNumber) {
       // Un-claim seat
       setMySeat(null);
-      addToast(`Seat #${seatNumber} released.`, 'info', 'Desk Released');
+      try {
+        localStorage.removeItem(seatStorageKey);
+      } catch {}
+      addToast(`Seat #${seatNumber} released. Attendance cancelled.`, 'info', 'Desk Released');
     } else {
       // Claim seat
       setMySeat(seatNumber);
-      addToast(`Seat #${seatNumber} successfully claimed for tomorrow.`, 'success', 'Desk Confirmed');
+      try {
+        localStorage.setItem(seatStorageKey, seatNumber.toString());
+      } catch {}
+      addToast(`Seat #${seatNumber} confirmed! You are marked attending tomorrow.`, 'success', 'Attendance Confirmed');
     }
+  };
+
+  const handleClearSeat = () => {
+    setMySeat(null);
+    try {
+      localStorage.removeItem(seatStorageKey);
+    } catch {}
+    addToast('Seat reservation cleared. Attendance cancelled.', 'info', 'Desk Released');
   };
 
   const handleRandomSeat = () => {
@@ -184,7 +209,10 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     
     const randomSeat = availableSeats[Math.floor(Math.random() * availableSeats.length)];
     setMySeat(randomSeat);
-    addToast(`Auto-assigned to Seat #${randomSeat}.`, 'success', 'Desk Assigned');
+    try {
+      localStorage.setItem(seatStorageKey, randomSeat.toString());
+    } catch {}
+    addToast(`Auto-assigned to Seat #${randomSeat}! You are marked attending tomorrow.`, 'success', 'Attendance Confirmed');
   };
 
   return (
@@ -204,7 +232,21 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           <div className="hud-attendance-meta">
             <span className="hud-count-highlight">{totalComing}</span>
             <span className="hud-count-total">/ 46</span>
-            <span className="hud-count-label">Present Tomorrow</span>
+            <span className="hud-count-label">Present</span>
+            {mySeat === null && isApproved ? (
+              <button
+                type="button"
+                className="hud-quick-attend-btn"
+                onClick={handleRandomSeat}
+                title="1-tap attendance: claim an available desk"
+              >
+                + I'm Coming
+              </button>
+            ) : mySeat !== null ? (
+              <span className="hud-quick-seat-badge" title="Your confirmed seat">
+                Seat #{mySeat < 10 ? `0${mySeat}` : mySeat}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -276,7 +318,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           mySeat={mySeat}
           onSeatSelect={handleSeatClick}
           onRandomSeat={handleRandomSeat}
-          onClearSeat={() => setMySeat(null)}
+          onClearSeat={handleClearSeat}
           votes={votes}
           currentUser={user}
           boardAnnouncement={boardMessage}

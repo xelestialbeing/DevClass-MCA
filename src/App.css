@@ -13,11 +13,18 @@ html, body, #root {
   padding: 0;
   background: #000;
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .terminal-landing {
+  width: 100%;
   width: 100vw;
-  height: 100vh;
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100dvh;
   position: relative;
   background: #000;
   overflow: hidden;
@@ -28,9 +35,9 @@ html, body, #root {
 /* Top Navigation Bar with Sign In / Sign Up */
 .top-nav-bar {
   position: absolute;
-  top: 16px;
-  left: 20px;
-  right: 20px;
+  top: max(16px, env(safe-area-inset-top, 16px));
+  left: max(20px, env(safe-area-inset-left, 20px));
+  right: max(20px, env(safe-area-inset-right, 20px));
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -42,17 +49,22 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(4, 18, 10, 0.75);
-  border: 1px solid rgba(141, 240, 180, 0.3);
+  background: rgba(4, 18, 10, 0.85);
+  border: 1px solid rgba(141, 240, 180, 0.35);
   padding: 6px 14px;
   border-radius: 20px;
   color: #8df0b4;
   font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
   font-size: 0.75rem;
   letter-spacing: 1.5px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.system-status-badge .badge-text-mobile {
+  display: none;
 }
 
 .status-dot {
@@ -62,6 +74,7 @@ html, body, #root {
   background: #1ce484;
   box-shadow: 0 0 8px #1ce484;
   animation: pulseDot 2s infinite ease-in-out;
+  flex-shrink: 0;
 }
 
 @keyframes pulseDot {
@@ -105,6 +118,10 @@ html, body, #root {
   transform: translateY(-1px);
 }
 
+.nav-auth-btn:active {
+  transform: scale(0.97);
+}
+
 .nav-auth-btn.signup {
   background: rgba(28, 236, 132, 0.15);
   border-color: #8df0b4;
@@ -117,14 +134,13 @@ html, body, #root {
   box-shadow: 0 0 24px rgba(28, 236, 132, 0.6);
 }
 
-/* Invisible full-screen input capturing all typing & mobile virtual keyboard focus */
+/* Invisible full-screen input capturing all typing directly into CRT display */
 .crt-hidden-input {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
+  opacity: 0.0001;
   cursor: text;
   background: transparent;
   border: none;
@@ -137,28 +153,42 @@ html, body, #root {
   caret-color: transparent;
   user-select: none;
   -webkit-user-select: none;
+  pointer-events: auto;
 }
 
 /* Responsive adjustments for Mobile / Android */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .top-nav-bar {
-    top: 10px;
-    left: 12px;
-    right: 12px;
+    top: max(10px, env(safe-area-inset-top, 10px));
+    left: max(10px, env(safe-area-inset-left, 10px));
+    right: max(10px, env(safe-area-inset-right, 10px));
+    gap: 8px;
   }
 
   .system-status-badge {
-    display: none; /* Keep clean on small screens */
+    padding: 5px 8px;
+    font-size: 0.65rem;
+    letter-spacing: 0.8px;
+    flex-shrink: 0;
+  }
+
+  .system-status-badge .badge-text-full {
+    display: none;
+  }
+
+  .system-status-badge .badge-text-mobile {
+    display: inline;
   }
 
   .top-auth-buttons {
-    width: 100%;
-    justify-content: flex-end;
+    gap: 6px;
   }
 
   .nav-auth-btn {
-    padding: 8px 14px;
-    font-size: 0.75rem;
-    min-height: 42px;
+    padding: 6px 10px;
+    font-size: 0.68rem;
+    min-height: 36px;
+    letter-spacing: 0.8px;
+    white-space: nowrap;
   }
 }

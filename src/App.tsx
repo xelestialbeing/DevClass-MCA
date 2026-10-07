@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { CrtBackground } from './shaders/crt/CrtBackground';
 import { UplinkLoader } from './shaders/uplink-loader/UplinkLoader';
-import { Classroom } from './components/Classroom';
-import { AuthModal } from './components/AuthModal';
 import { supabaseService, UserProfile } from './lib/supabase';
+
+const Classroom = lazy(() => import('./components/Classroom').then((m) => ({ default: m.Classroom })));
+const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })));
 import './shaders/threeui.css';
 import './App.css';
 
@@ -63,7 +64,9 @@ export function App() {
       // Username entered -> transition to password input
       setTerminalStep('password');
       setTypedPassword('');
-      setTimeout(() => mobileInputRef.current?.focus(), 50);
+      setTimeout(() => {
+        mobileInputRef.current?.focus();
+      }, 50);
       return;
     }
 
@@ -169,7 +172,11 @@ export function App() {
 
   // If in Classroom, show classroom view
   if (inClassroom) {
-    return <Classroom currentUser={currentUser} onSignOut={handleSignOut} />;
+    return (
+      <Suspense fallback={<UplinkLoader />}>
+        <Classroom currentUser={currentUser} onSignOut={handleSignOut} />
+      </Suspense>
+    );
   }
 
   return (
@@ -181,36 +188,47 @@ export function App() {
         }
       }}
     >
-      {/* Invisible full-screen input capturing virtual keyboard on mobile / Android */}
-      <input
-        ref={mobileInputRef}
-        type={terminalStep === 'password' ? 'password' : 'text'}
-        className="crt-hidden-input"
-        value={terminalStep === 'username' ? typedUsername : typedPassword}
-        onChange={(e) => {
-          if (terminalStep === 'username') {
-            setTypedUsername(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''));
-          } else {
-            setTypedPassword(e.target.value);
-          }
+      {/* Full-screen interactive input capturing keyboard directly into CRT display on desktop & mobile */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleTerminalSubmit();
         }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            handleTerminalSubmit();
-          } else if (e.key === 'Escape' && terminalStep === 'password') {
-            e.preventDefault();
-            setTerminalStep('username');
-            setTypedPassword('');
-          } else if (e.key === 'Backspace' && terminalStep === 'password' && typedPassword === '') {
-            e.preventDefault();
-            setTerminalStep('username');
-          }
-        }}
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck="false"
-      />
+        style={{ position: 'absolute', inset: 0, margin: 0, padding: 0, pointerEvents: 'none' }}
+      >
+        <input
+          ref={mobileInputRef}
+          type={terminalStep === 'password' ? 'password' : 'text'}
+          className="crt-hidden-input"
+          value={terminalStep === 'username' ? typedUsername : typedPassword}
+          onChange={(e) => {
+            if (terminalStep === 'username') {
+              setTypedUsername(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''));
+            } else {
+              setTypedPassword(e.target.value);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleTerminalSubmit();
+            } else if (e.key === 'Escape' && terminalStep === 'password') {
+              e.preventDefault();
+              setTerminalStep('username');
+              setTypedPassword('');
+            } else if (e.key === 'Backspace' && terminalStep === 'password' && typedPassword === '') {
+              e.preventDefault();
+              setTerminalStep('username');
+            }
+          }}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck="false"
+          inputMode="text"
+          enterKeyHint="go"
+          aria-label="CRT Terminal Input"
+        />
+      </form>
       {/* 
         Condition 1: UplinkLoader ONLY pops up when someone signs in.
         Never shows on initial page visit.
@@ -259,7 +277,8 @@ export function App() {
           <header className="top-nav-bar">
             <div className="system-status-badge">
               <span className="status-dot"></span>
-              <span>NODE: DEVCLASS-MCA [ONLINE]</span>
+              <span className="badge-text-full">NODE: DEVCLASS-MCA [ONLINE]</span>
+              <span className="badge-text-mobile">MCA [ONLINE]</span>
             </div>
 
             <div className="top-auth-buttons">
@@ -293,11 +312,13 @@ export function App() {
 
       {/* Cyberpunk First-Time Setup Modal (Face ID + Username + Locked Phone + Catchphrase) */}
       {showAuthModal && (
-        <AuthModal
-          googleAccount={pendingGoogleAccount}
-          onClose={() => setShowAuthModal(false)}
-          onAuthSuccess={handleAuthSuccess}
-        />
+        <Suspense fallback={null}>
+          <AuthModal
+            googleAccount={pendingGoogleAccount}
+            onClose={() => setShowAuthModal(false)}
+            onAuthSuccess={handleAuthSuccess}
+          />
+        </Suspense>
       )}
     </div>
   );

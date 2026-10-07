@@ -40,6 +40,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleStartTelegramVerification = async () => {
     setPinError(null);
+    if (telegramSession && waitingTelegram) {
+      window.open(telegramSession.telegramLink, '_blank');
+      return;
+    }
     const session = await supabaseService.createPhoneVerificationSession();
     setTelegramSession(session);
     setWaitingTelegram(true);

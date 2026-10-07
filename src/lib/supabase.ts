@@ -16,12 +16,13 @@ export interface UserProfile {
   isApproved?: boolean; // Account approval flag: true once admin verifies entry
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-const TELEGRAM_BOT_TOKEN = import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_ADMIN_CHAT_ID = import.meta.env.VITE_TELEGRAM_ADMIN_CHAT_ID || '';
-const TELEGRAM_BOT_USERNAME = (
-  import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'JakpotGamingBot'
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ({} as Record<string, string | undefined>);
+const SUPABASE_URL = env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || '';
+const TELEGRAM_BOT_TOKEN = env.VITE_TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_ADMIN_CHAT_ID = env.VITE_TELEGRAM_ADMIN_CHAT_ID || '';
+const TELEGRAM_BOT_USERNAME = String(
+  env.VITE_TELEGRAM_BOT_USERNAME || 'JakpotGamingBot'
 ).replace(/^@/, '').trim();
 
 export const isSupabaseConfigured = (): boolean => {
@@ -154,15 +155,18 @@ export const supabaseService = {
         const rows = await res.json();
         if (rows && rows.length > 0) {
           const r = rows[0];
+          const isApproved = r.face_scan_status === 'verified';
           const userProfile: UserProfile = {
             id: r.id,
             username: r.username,
             phoneNumber: r.phone_number,
             catchphrase: r.catchphrase || '',
             avatar: r.username.charAt(0).toUpperCase(),
+            avatarUrl: r.avatar_url || undefined,
             email: r.email,
             faceScanUrl: r.face_scan_url,
             faceScanStatus: r.face_scan_status,
+            isApproved,
           };
           localStorage.setItem(SESSION_KEY, JSON.stringify(userProfile));
           return userProfile;
@@ -177,6 +181,7 @@ export const supabaseService = {
 
   // 2. Upload Face Scan Snapshot to Supabase Storage
   async uploadFaceScan(username: string, base64Image: string): Promise<string | null> {
+    if (!base64Image) return null;
     if (!isSupabaseConfigured()) {
       return base64Image; // In local fallback, use data URI directly
     }
@@ -295,7 +300,7 @@ export const supabaseService = {
       // 2. Upload optional custom profile avatar if user provided one
       let customAvatarUrl: string | undefined = undefined;
       if (params.customAvatarBase64) {
-        customAvatarUrl = await this.uploadFaceScan(cleanUsername + '_avatar', params.customAvatarBase64);
+        customAvatarUrl = (await this.uploadFaceScan(cleanUsername + '_avatar', params.customAvatarBase64)) || undefined;
       }
 
       // 3. Transmit alert to Telegram Admin with approval buttons
@@ -315,7 +320,7 @@ export const supabaseService = {
         avatar: cleanUsername.charAt(0).toUpperCase(),
         avatarUrl: customAvatarUrl,
         email: params.email?.trim() || undefined,
-        faceScanUrl: faceUrl, // Biometric record stored for college
+        faceScanUrl: faceUrl || undefined, // Biometric record stored for college
         faceScanStatus: 'pending',
         isApproved: false, // Inactive until admin approval
       };
@@ -532,15 +537,18 @@ export const supabaseService = {
         const rows = await dbRes.json();
         if (rows && rows.length > 0 && rows[0].username && rows[0].face_scan_url) {
           // Existing student with full setup!
+          const isApproved = rows[0].face_scan_status === 'verified';
           const existing: UserProfile = {
             id: rows[0].id,
             username: rows[0].username,
             phoneNumber: rows[0].phone_number,
             catchphrase: rows[0].catchphrase || '',
             avatar: rows[0].username.charAt(0).toUpperCase(),
+            avatarUrl: rows[0].avatar_url || undefined,
             email: rows[0].email,
             faceScanUrl: rows[0].face_scan_url,
             faceScanStatus: rows[0].face_scan_status,
+            isApproved,
           };
           localStorage.setItem(SESSION_KEY, JSON.stringify(existing));
           return { existingUser: existing, needsSetup: false };
@@ -691,7 +699,12 @@ export const supabaseService = {
   },
 
   // 13. Real-time / Polled Approval Status Check
-  async checkApprovalStatus(userIdOrUsername: string): Promise<boolean> {
+  async checkApprovalStatus(userIdOrUsername?: string | null): Promise<boolean> {
+    if (!userIdOrUsername || typeof userIdOrUsername !== 'string') {
+      const curr = this.getCurrentUser();
+      return curr?.isApproved ?? false;
+    }
+
     if (!isSupabaseConfigured()) {
       const curr = this.getCurrentUser();
       return curr?.isApproved ?? true;

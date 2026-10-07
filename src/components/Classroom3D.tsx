@@ -55,12 +55,12 @@ const getSeatRowColor = (seatNum: number): number => {
 
 // Bounding box: camera is kept within reasonable exploration bounds
 const ROOM_BOUNDS = {
-  minX: -8.0,
-  maxX: 6.8,
-  minY: 0.8,
-  maxY: 12.0, // Allows elevated overview without clipping
-  minZ: -8.8,
-  maxZ: 10.0, // Allows pulling back comfortably in overview without wall occlusion
+  minX: -8.8,
+  maxX: 7.8,
+  minY: 0.6,
+  maxY: 16.0, // Allows elevated overview on both mobile portrait and desktop
+  minZ: -9.5,
+  maxZ: 15.0, // Allows comfortable zoom on mobile without wall occlusion
 };
 
 export const Classroom3D: React.FC<Classroom3DProps> = ({
@@ -76,6 +76,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredSeat, setHoveredSeat] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<CameraPreset>('overview');
+  const [showSeatPickerModal, setShowSeatPickerModal] = useState(false);
 
   // References to Three.js instances
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -105,8 +106,13 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     sceneRef.current = scene;
 
     // CAMERA (Calibrated to natural elevated auditorium perspective matching reference photo)
-    const camera = new THREE.PerspectiveCamera(46, width / height, 0.25, 60);
-    camera.position.set(-0.65, 7.2, 3.4);
+    const isMobilePortrait = width < 768 && height > width;
+    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 60 : 46, width / height, 0.25, 60);
+    if (isMobilePortrait) {
+      camera.position.set(-0.65, 9.2, 5.2);
+    } else {
+      camera.position.set(-0.65, 7.2, 3.4);
+    }
     cameraRef.current = camera;
 
     // RENDERER (logarithmicDepthBuffer eliminates all micro-flickering)
@@ -1154,11 +1160,6 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     // - Writing Tablet: Natural warm honey beech/birch wood (0xe0a267)
     // - Frame: Light silver powder-coated tubular steel (0xa8b4c0)
     // =============================================================
-    const seatChairMat = new THREE.MeshStandardMaterial({
-      color: 0xab312c, // User requested crimson hex #ab312c
-      roughness: 0.42,
-      metalness: 0.05,
-    });
     const chromeLegMat = new THREE.MeshStandardMaterial({
       color: 0xa8b4c0,
       roughness: 0.22,
@@ -1223,6 +1224,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       createDesk(46, rightCols[0], 2.4);
     }
 
+    const interactiveTargets: THREE.Object3D[] = [];
+
     function createDesk(seatNum: number, x: number, z: number) {
       const deskGroup = new THREE.Group();
       deskGroup.position.set(x, 0, z);
@@ -1237,12 +1240,14 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       const seatMesh = new THREE.Mesh(seatBaseGeo, chairMat);
       seatMesh.position.set(0, 0.72, 0);
       seatMesh.castShadow = true;
+      (seatMesh as any).seatNumber = seatNum;
       deskGroup.add(seatMesh);
 
       const backMesh = new THREE.Mesh(seatBackGeo, chairMat);
       backMesh.position.set(0, 1.1, 0.28);
       backMesh.rotation.x = -0.12;
       backMesh.castShadow = true;
+      (backMesh as any).seatNumber = seatNum;
       deskGroup.add(backMesh);
 
       // 2. Tubular Metal Chrome Legs
@@ -1306,30 +1311,47 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       numBadge.position.set(0.38, 1.21, -0.15);
       deskGroup.add(numBadge);
 
+      // 5. Generous Tap / Hit Box for Effortless Touch on Phones & Precision Clicks
+      const hitBoxGeo = new THREE.BoxGeometry(1.0, 1.45, 1.0);
+      const hitBoxMat = new THREE.MeshBasicMaterial({ visible: false, transparent: true, opacity: 0 });
+      const hitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+      hitBox.position.set(0.1, 0.72, 0.05);
+      (hitBox as any).seatNumber = seatNum;
+      deskGroup.add(hitBox);
+
       (deskGroup as any).seatNumber = seatNum;
       scene.add(deskGroup);
       deskMap.set(seatNum, { group: deskGroup, tablet: tabletMesh, seat: seatMesh });
+
+      // Register all touchable objects for raycaster
+      interactiveTargets.push(hitBox, tabletMesh, seatMesh, backMesh);
     }
 
     deskMeshesRef.current = deskMap;
 
     // -------------------------------------------------------------
-    // RAYCASTER FOR INTERACTION (Click & Hover)
+    // RAYCASTER FOR INTERACTION (Click & Touch Tap)
     // -------------------------------------------------------------
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
-    const handlePointerMove = (e: MouseEvent) => {
+    const findIntersectedSeat = (clientX: number, clientY: number): number | null => {
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
-      const tablets = Array.from(deskMap.values()).map((d) => d.tablet);
-      const intersects = raycaster.intersectObjects(tablets, false);
-
+      const intersects = raycaster.intersectObjects(interactiveTargets, false);
       if (intersects.length > 0) {
-        const seatNo = (intersects[0].object as any).seatNumber;
+        const hit = intersects[0].object as any;
+        return hit.seatNumber || (hit.parent as any)?.seatNumber || null;
+      }
+      return null;
+    };
+
+    const handlePointerMove = (e: MouseEvent) => {
+      const seatNo = findIntersectedSeat(e.clientX, e.clientY);
+      if (seatNo) {
         setHoveredSeat(seatNo);
         renderer.domElement.style.cursor = 'pointer';
       } else {
@@ -1338,20 +1360,46 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       }
     };
 
+    let pointerDownPos = { x: 0, y: 0 };
+    let pointerDownTime = 0;
+    let lastTapTime = 0;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+      pointerDownTime = performance.now();
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      const dx = e.clientX - pointerDownPos.x;
+      const dy = e.clientY - pointerDownPos.y;
+      const dist = Math.hypot(dx, dy);
+      const elapsed = performance.now() - pointerDownTime;
+
+      // Tap threshold: moved < 12px and duration < 400ms (mobile friendly slop)
+      if (dist < 12 && elapsed < 400) {
+        lastTapTime = performance.now();
+        const seatNo = findIntersectedSeat(e.clientX, e.clientY);
+        if (seatNo) {
+          onSeatSelect(seatNo);
+          setHoveredSeat(seatNo);
+
+          if (activePreset === 'myseat' && deskMap.has(seatNo)) {
+            const dg = deskMap.get(seatNo)!.group;
+            targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
+            targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+          }
+        }
+      }
+    };
+
     const handlePointerClick = (e: MouseEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const tablets = Array.from(deskMap.values()).map((d) => d.tablet);
-      const intersects = raycaster.intersectObjects(tablets, false);
-
-      if (intersects.length > 0) {
-        const seatNo = (intersects[0].object as any).seatNumber;
+      // Prevent double trigger if pointerup handled it
+      if (performance.now() - lastTapTime < 450) return;
+      const seatNo = findIntersectedSeat(e.clientX, e.clientY);
+      if (seatNo) {
         onSeatSelect(seatNo);
+        setHoveredSeat(seatNo);
 
-        // If in 'myseat' preset, immediately glide camera to this clicked desk
         if (activePreset === 'myseat' && deskMap.has(seatNo)) {
           const dg = deskMap.get(seatNo)!.group;
           targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
@@ -1361,6 +1409,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     };
 
     renderer.domElement.addEventListener('mousemove', handlePointerMove);
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointerup', handlePointerUp);
     renderer.domElement.addEventListener('click', handlePointerClick);
 
     // -------------------------------------------------------------
@@ -1372,9 +1422,11 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       const h = container.clientHeight || window.innerHeight;
       const aspect = w / h;
       camera.aspect = aspect;
-      // If window is narrower than 16:9, scale FOV so all desks & walls fit in frame:
-      if (aspect < 1.6) {
-        camera.fov = Math.min(64, 46 * (1.6 / aspect));
+      // If mobile portrait or narrow screen, scale FOV so all desks fit in frame:
+      if (aspect < 1.0) {
+        camera.fov = Math.min(68, 48 * (1.15 / aspect));
+      } else if (aspect < 1.6) {
+        camera.fov = Math.min(60, 46 * (1.5 / aspect));
       } else {
         camera.fov = 46;
       }
@@ -1424,7 +1476,6 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       camera.position.z = THREE.MathUtils.clamp(camera.position.z, ROOM_BOUNDS.minZ, ROOM_BOUNDS.maxZ);
 
       // SMART OCCLUSION CULLING: Back wall is ONLY visible when viewing from the front of the classroom (like podium mode)
-      // When in overview or viewing from the rear (z >= 2.0), hide it completely so it never blocks the desks or viewport!
       if (backWallRef.current) {
         backWallRef.current.visible = camera.position.z < 2.0;
       }
@@ -1438,6 +1489,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', handleResize);
       renderer.domElement.removeEventListener('mousemove', handlePointerMove);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('click', handlePointerClick);
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
@@ -1515,8 +1568,14 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     if (preset === 'overview') {
       // High-angle bird's-eye perspective:
       // Perfectly frames all 46 desks in their color zones, the teacher's lectern, and central aisle
-      targetCamPosRef.current = new THREE.Vector3(-0.65, 7.2, 3.4);
-      targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);
+      const isMobilePortrait = (containerRef.current?.clientWidth || window.innerWidth) < 768;
+      if (isMobilePortrait) {
+        targetCamPosRef.current = new THREE.Vector3(-0.65, 9.2, 5.2);
+        targetLookAtRef.current = new THREE.Vector3(-0.65, 0.5, -2.2);
+      } else {
+        targetCamPosRef.current = new THREE.Vector3(-0.65, 7.2, 3.4);
+        targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);
+      }
     } else if (preset === 'podium') {
       // First-person Professor's perspective standing behind the lectern looking out at all students
       targetCamPosRef.current = new THREE.Vector3(-4.4, 1.88, -8.25);
@@ -1550,35 +1609,77 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
       {/* Floating HUD Elements */}
       <div className="classroom-hud-overlay">
-        {/* Floating Tooltip when hovering a desk */}
+        {/* Floating Tooltip when hovering/tapping a desk */}
         {hoveredSeat && (
-          <div className="seat-hover-card">
+          <div className="seat-hover-card" onClick={(e) => e.stopPropagation()}>
             <div className="seat-hover-title">
               <span>SEAT #{hoveredSeat < 10 ? `0${hoveredSeat}` : hoveredSeat}</span>
-              <span
-                className={`seat-hover-status ${
-                  isHoveredMySeat ? 'mine' : hoveredOccupant ? 'occupied' : 'available'
-                }`}
-              >
-                {isHoveredMySeat ? 'YOUR SEAT' : hoveredOccupant ? 'OCCUPIED' : 'AVAILABLE'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  className={`seat-hover-status ${
+                    isHoveredMySeat ? 'mine' : hoveredOccupant ? 'occupied' : 'available'
+                  }`}
+                >
+                  {isHoveredMySeat ? 'YOUR SEAT' : hoveredOccupant ? 'OCCUPIED' : 'AVAILABLE'}
+                </span>
+                <button
+                  type="button"
+                  className="seat-hover-close-btn"
+                  onClick={() => setHoveredSeat(null)}
+                  aria-label="Dismiss tooltip"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {isHoveredMySeat ? (
-              <span style={{ color: '#10b981', fontSize: '0.72rem' }}>
-                ✔ Click to release this seat
-              </span>
+              <div className="seat-hover-action-col">
+                <span style={{ color: '#10b981', fontSize: '0.74rem', fontWeight: 600 }}>
+                  ✔ Confirmed for tomorrow
+                </span>
+                {onClearSeat && (
+                  <button
+                    type="button"
+                    className="seat-action-btn release"
+                    onClick={() => {
+                      onClearSeat();
+                      setHoveredSeat(null);
+                    }}
+                  >
+                    Release Seat
+                  </button>
+                )}
+              </div>
             ) : hoveredOccupant ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <span style={{ color: '#60a5fa', fontWeight: 600 }}>@{hoveredOccupant.username}</span>
-                <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.68rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <span style={{ color: '#60a5fa', fontWeight: 600, fontSize: '0.78rem' }}>
+                  @{hoveredOccupant.username}
+                </span>
+                <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.70rem' }}>
                   "{hoveredOccupant.catchphrase || 'Sitting here tomorrow'}"
                 </span>
               </div>
             ) : (
-              <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>
-                Tap to claim this seat for tomorrow
-              </span>
+              <div className="seat-hover-action-col">
+                <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>
+                  Desk is available for tomorrow
+                </span>
+                <button
+                  type="button"
+                  className="seat-action-btn claim"
+                  onClick={() => {
+                    onSeatSelect(hoveredSeat);
+                    if (activePreset === 'myseat' && deskMeshesRef.current.has(hoveredSeat)) {
+                      const dg = deskMeshesRef.current.get(hoveredSeat)!.group;
+                      targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
+                      targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+                    }
+                  }}
+                >
+                  Claim Seat #{hoveredSeat}
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -1653,18 +1754,28 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                   <span className="reservation-pulse" />
                   <div className="reservation-label-col">
                     <span className="reservation-seat-code">SEAT #{mySeat < 10 ? `0${mySeat}` : mySeat}</span>
-                    <span className="reservation-sub">Reserved for Tomorrow</span>
+                    <span className="reservation-sub">Attending Tomorrow</span>
                   </div>
-                  {onClearSeat && (
+                  <div className="reservation-actions-row">
                     <button
                       type="button"
-                      className="reservation-btn cancel"
-                      onClick={onClearSeat}
-                      title="Release this seat"
+                      className="reservation-btn choose-seat"
+                      onClick={() => setShowSeatPickerModal(true)}
+                      title="Switch to another seat"
                     >
-                      Release
+                      Change
                     </button>
-                  )}
+                    {onClearSeat && (
+                      <button
+                        type="button"
+                        className="reservation-btn cancel"
+                        onClick={onClearSeat}
+                        title="Release this seat"
+                      >
+                        Release
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : currentUser && currentUser.isApproved === false && currentUser.faceScanStatus !== 'verified' ? (
                 <div className="reservation-inner empty">
@@ -1692,23 +1803,192 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                   <span className="reservation-empty-dot" />
                   <div className="reservation-label-col">
                     <span className="reservation-seat-code">NO SEAT CLAIMED</span>
-                    <span className="reservation-sub">Click any desk in 3D</span>
+                    <span className="reservation-sub">Tap desk or use Seat Map</span>
                   </div>
-                  {onRandomSeat && (
+                  <div className="reservation-actions-row">
                     <button
                       type="button"
-                      className="reservation-btn auto"
-                      onClick={onRandomSeat}
-                      title="Automatically assign an available desk"
+                      className="reservation-btn choose-seat"
+                      onClick={() => setShowSeatPickerModal(true)}
+                      title="Open 2D Seating Matrix"
                     >
-                      Auto Assign
+                      💺 Seat Map
                     </button>
-                  )}
+                    {onRandomSeat && (
+                      <button
+                        type="button"
+                        className="reservation-btn auto"
+                        onClick={onRandomSeat}
+                        title="Automatically assign an available desk"
+                      >
+                        ⚡ I'm Coming
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {/* Mobile & Tablet Interactive 2D Seating Matrix Sheet */}
+        {showSeatPickerModal && (
+          <div className="spatial-seat-sheet-backdrop" onClick={() => setShowSeatPickerModal(false)}>
+            <div className="spatial-seat-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="seat-sheet-header">
+                <div className="seat-sheet-title-group">
+                  <div className="seat-sheet-badge">CLASSROOM PRESENCE // 46 SEATS</div>
+                  <h3 className="seat-sheet-title">Select Desk for Tomorrow</h3>
+                </div>
+                <button
+                  type="button"
+                  className="seat-sheet-close-btn"
+                  onClick={() => setShowSeatPickerModal(false)}
+                  aria-label="Close Seat Map"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Status bar */}
+              <div className="seat-sheet-status-bar">
+                <div className="seat-sheet-status-text">
+                  {mySeat ? (
+                    <span className="status-confirmed">✔ Attending: Seat #{mySeat < 10 ? `0${mySeat}` : mySeat}</span>
+                  ) : (
+                    <span className="status-unclaimed">No desk chosen yet</span>
+                  )}
+                </div>
+                {onRandomSeat && !mySeat && (
+                  <button
+                    type="button"
+                    className="seat-sheet-quick-auto-btn"
+                    onClick={() => {
+                      onRandomSeat();
+                      setShowSeatPickerModal(false);
+                    }}
+                  >
+                    ⚡ Auto-Pick For Me
+                  </button>
+                )}
+                {onClearSeat && mySeat && (
+                  <button
+                    type="button"
+                    className="seat-sheet-quick-release-btn"
+                    onClick={() => {
+                      onClearSeat();
+                    }}
+                  >
+                    Release Seat
+                  </button>
+                )}
+              </div>
+
+              {/* Front of Room Visual Anchor */}
+              <div className="seat-sheet-board-indicator">
+                <span>▲ FRONT OF AUDITORIUM · SMART BOARD & LECTERN ▲</span>
+              </div>
+
+              {/* 46 Seating Matrix */}
+              <div className="seat-sheet-grid-container">
+                {/* Left Bank: 5 columns x 5 rows = Seats 1 to 25 */}
+                <div className="seat-sheet-bank left">
+                  <div className="seat-sheet-bank-label">LEFT WING (SEATS 01-25)</div>
+                  <div className="seat-sheet-cells-grid left">
+                    {Array.from({ length: 25 }, (_, i) => i + 1).map((sNum) => {
+                      const occupant = votes.find((v) => v.seatNumber === sNum);
+                      const isMine = mySeat === sNum;
+                      const isOccupied = Boolean(occupant);
+
+                      return (
+                        <button
+                          key={sNum}
+                          type="button"
+                          disabled={isOccupied && !isMine}
+                          className={`seat-grid-cell ${isMine ? 'mine' : isOccupied ? 'occupied' : 'available'}`}
+                          onClick={() => {
+                            onSeatSelect(sNum);
+                            setShowSeatPickerModal(false);
+                            if (deskMeshesRef.current.has(sNum)) {
+                              const dg = deskMeshesRef.current.get(sNum)!.group;
+                              targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
+                              targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+                              setActivePreset('myseat');
+                            }
+                          }}
+                          title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username}` : `Seat #${sNum} Available`}
+                        >
+                          <span className="cell-num">{sNum < 10 ? `0${sNum}` : sNum}</span>
+                          <span className="cell-tag">
+                            {isMine ? 'YOU' : isOccupied ? `@${occupant?.username?.slice(0, 4)}` : 'FREE'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Center Aisle Spacer */}
+                <div className="seat-sheet-aisle">
+                  <span>AISLE</span>
+                </div>
+
+                {/* Right Bank: 4 columns x 5 rows = Seats 26 to 45 + Seat 46 Back Aisle */}
+                <div className="seat-sheet-bank right">
+                  <div className="seat-sheet-bank-label">RIGHT WING (SEATS 26-46)</div>
+                  <div className="seat-sheet-cells-grid right">
+                    {Array.from({ length: 21 }, (_, i) => i + 26).map((sNum) => {
+                      const occupant = votes.find((v) => v.seatNumber === sNum);
+                      const isMine = mySeat === sNum;
+                      const isOccupied = Boolean(occupant);
+
+                      return (
+                        <button
+                          key={sNum}
+                          type="button"
+                          disabled={isOccupied && !isMine}
+                          className={`seat-grid-cell ${isMine ? 'mine' : isOccupied ? 'occupied' : 'available'}`}
+                          onClick={() => {
+                            onSeatSelect(sNum);
+                            setShowSeatPickerModal(false);
+                            if (deskMeshesRef.current.has(sNum)) {
+                              const dg = deskMeshesRef.current.get(sNum)!.group;
+                              targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
+                              targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+                              setActivePreset('myseat');
+                            }
+                          }}
+                          title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username}` : `Seat #${sNum} Available`}
+                        >
+                          <span className="cell-num">{sNum < 10 ? `0${sNum}` : sNum}</span>
+                          <span className="cell-tag">
+                            {isMine ? 'YOU' : isOccupied ? `@${occupant?.username?.slice(0, 4)}` : 'FREE'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Legend & Close Footer */}
+              <div className="seat-sheet-footer">
+                <div className="seat-sheet-legend">
+                  <div className="legend-item"><span className="dot available" /> Free</div>
+                  <div className="legend-item"><span className="dot occupied" /> Occupied</div>
+                  <div className="legend-item"><span className="dot mine" /> Your Desk</div>
+                </div>
+                <button
+                  type="button"
+                  className="seat-sheet-done-btn"
+                  onClick={() => setShowSeatPickerModal(false)}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

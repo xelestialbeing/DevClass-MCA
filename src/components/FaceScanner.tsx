@@ -36,8 +36,8 @@ const playShutterSound = () => {
 };
 
 export const FaceScanner: React.FC<FaceScannerProps> = ({ onCapture, onCancel }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackerRef = useRef<any>(null);
 
@@ -561,6 +561,26 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onCapture, onCancel })
                 : faceDetected
                 ? '📸 MANUAL CAPTURE'
                 : '👤 POSITION FACE TO SCAN'}
+            </button>
+          )}
+
+          {onCancel && (
+            <button
+              type="button"
+              className="scanner-cancel-btn"
+              onClick={onCancel}
+              style={{
+                marginTop: '10px',
+                background: 'transparent',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                color: '#94a3b8',
+                borderRadius: '8px',
+                padding: '6px 14px',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+              }}
+            >
+              ✕ CANCEL SCAN
             </button>
           )}
 
