@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabaseService, UserProfile } from '../lib/supabase';
+import { supabaseService, UserProfile, TELEGRAM_BOT_USERNAME } from '../lib/supabase';
 import { FaceScanner } from './FaceScanner';
 import './AuthModal.css';
 
@@ -341,7 +341,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
 
                   <span style={{ fontSize: '0.68rem', color: '#68ab8b', lineHeight: 1.4 }}>
-                    ℹ Tap the button to launch @JakpotGamingBot. Share your contact with 1 tap — Telegram cryptographically verifies your real phone number without SMS delays.
+                    ℹ Tap the button to launch {TELEGRAM_BOT_USERNAME ? `@${TELEGRAM_BOT_USERNAME}` : 'the Telegram verification bot'}. Share your contact with 1 tap — Telegram cryptographically verifies your real phone number without SMS delays.
                   </span>
                 </div>
               ) : (

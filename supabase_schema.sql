@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- COLLEGE PRESENCE PLATFORM: DATABASE SCHEMA & STORAGE SETUP
--- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/pnfeykttsvkajjqulcko/sql
+-- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/<your-project-id>/sql
 -- ==============================================================================
 
 -- 1. Create Users Table with Face ID Verification and Phone Number

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ProfileModal } from './ProfileModal';
 import { Classroom3D, StudentVote } from './Classroom3D';
-import { UserProfile, supabaseService } from '../lib/supabase';
+import { UserProfile, supabaseService, TELEGRAM_BOT_USERNAME } from '../lib/supabase';
 import { SpatialModal, SpatialToast, SpatialModalProps } from './SpatialModal';
 import './Classroom.css';
 
@@ -86,7 +86,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
         { label: 'STUDENT HANDLE', value: `@${user?.username || 'Student'}` },
         { label: 'SECURITY STATUS', value: 'Pending Admin Review' },
         { label: 'CLASSROOM HALL', value: 'DevClass MCA Hall' },
-        { label: 'DISPATCH BOT', value: '@JakpotGamingBot' },
+        { label: 'DISPATCH BOT', value: TELEGRAM_BOT_USERNAME ? `@${TELEGRAM_BOT_USERNAME}` : 'Verification Bot' },
       ],
       primaryAction: {
         label: isVerifyingStatus ? 'Verifying...' : 'Check Approval Status',

@@ -21,8 +21,8 @@ const SUPABASE_URL = env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || '';
 const TELEGRAM_BOT_TOKEN = env.VITE_TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_ADMIN_CHAT_ID = env.VITE_TELEGRAM_ADMIN_CHAT_ID || '';
-const TELEGRAM_BOT_USERNAME = String(
-  env.VITE_TELEGRAM_BOT_USERNAME || 'JakpotGamingBot'
+export const TELEGRAM_BOT_USERNAME = String(
+  env.VITE_TELEGRAM_BOT_USERNAME || ''
 ).replace(/^@/, '').trim();
 
 export const isSupabaseConfigured = (): boolean => {
