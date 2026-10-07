@@ -53,14 +53,14 @@ const getSeatRowColor = (seatNum: number): number => {
   return 0x7c3aed;                    // Seat 46 Back Aisle: Amethyst Purple
 };
 
-// Bounding box: camera is kept within reasonable exploration bounds
+// Strict interior room bounds: prevents camera from penetrating walls, floor, or ceiling
 const ROOM_BOUNDS = {
-  minX: -8.8,
-  maxX: 7.8,
-  minY: 0.6,
-  maxY: 16.0, // Allows elevated overview on both mobile portrait and desktop
-  minZ: -9.5,
-  maxZ: 15.0, // Allows comfortable zoom on mobile without wall occlusion
+  minX: -8.1, // Left inner wall is at -8.55
+  maxX: 6.7,  // Right inner wall is at 7.25
+  minY: 0.9,  // Floor is at 0
+  maxY: 5.4,  // Ceiling is at 6.2
+  minZ: -8.6, // Front inner wall is at -9.2
+  maxZ: 4.1,  // Back inner wall is at 4.55
 };
 
 export const Classroom3D: React.FC<Classroom3DProps> = ({
@@ -108,12 +108,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     // CAMERA & MOBILE DETECTION
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || width < 768;
     const isMobilePortrait = width < 768 && height > width;
-    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 58 : 46, width / height, 0.25, 60);
-    if (isMobilePortrait) {
-      camera.position.set(-0.65, 9.4, 5.6);
-    } else {
-      camera.position.set(-0.65, 7.2, 3.4);
-    }
+    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 56 : 46, width / height, 0.25, 50);
+    camera.position.set(-0.65, 5.2, 3.8);
     cameraRef.current = camera;
 
     // RENDERER (Optimized for mobile GPUs - capped DPR, efficient shadows, no shader stalls)
@@ -136,11 +132,11 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.maxPolarAngle = Math.PI / 2 - 0.04; // Never dip under the floor
-    controls.minPolarAngle = 0.08;              // Never flip over the ceiling
-    controls.minDistance = 0.2;
-    controls.maxDistance = 18;
-    controls.target.set(-0.65, 0.6, -2.4);
+    controls.maxPolarAngle = Math.PI / 2 - 0.06; // Never dip under the floor
+    controls.minPolarAngle = 0.35;              // Never flip through the ceiling
+    controls.minDistance = 0.8;                 // Prevent clipping inside chair geometry
+    controls.maxDistance = 10.0;                // Never zoom out past classroom walls
+    controls.target.set(-0.65, 0.7, -2.4);
     controlsRef.current = controls;
 
     // -------------------------------------------------------------
@@ -353,6 +349,18 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     backWall.receiveShadow = true;
     scene.add(backWall);
     backWallRef.current = backWall;
+
+    // Architectural Acoustic Ceiling (y = 6.2)
+    const ceilingGeo = new THREE.PlaneGeometry(16.0, 14.0);
+    const ceilingMat = new THREE.MeshStandardMaterial({
+      color: 0xf1f5f9,
+      roughness: 0.88,
+      metalness: 0.02,
+    });
+    const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set(-0.65, 6.2, -2.35);
+    scene.add(ceiling);
 
     // -------------------------------------------------------------
     // SMART BOARD (Center of Front Wall with Dynamic Screen)
@@ -1494,15 +1502,14 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
         controls.update();
       }
 
-      // STRICT CONTAINMENT: Camera view angle stays within comfortable bounds
+      // STRICT CONTAINMENT: Camera & target strictly stay inside the classroom room envelope
       camera.position.x = THREE.MathUtils.clamp(camera.position.x, ROOM_BOUNDS.minX, ROOM_BOUNDS.maxX);
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, ROOM_BOUNDS.minY, ROOM_BOUNDS.maxY);
       camera.position.z = THREE.MathUtils.clamp(camera.position.z, ROOM_BOUNDS.minZ, ROOM_BOUNDS.maxZ);
 
-      // SMART OCCLUSION CULLING: Back wall is ONLY visible when viewing from the front of the classroom (like podium mode)
-      if (backWallRef.current) {
-        backWallRef.current.visible = camera.position.z < 2.0;
-      }
+      controls.target.x = THREE.MathUtils.clamp(controls.target.x, ROOM_BOUNDS.minX + 0.6, ROOM_BOUNDS.maxX - 0.6);
+      controls.target.y = THREE.MathUtils.clamp(controls.target.y, 0.6, 3.8);
+      controls.target.z = THREE.MathUtils.clamp(controls.target.z, ROOM_BOUNDS.minZ + 0.6, ROOM_BOUNDS.maxZ - 0.6);
 
       renderer.render(scene, camera);
     };
@@ -1590,19 +1597,12 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     setActivePreset(preset);
 
     if (preset === 'overview') {
-      // High-angle bird's-eye perspective:
-      // Perfectly frames all 46 desks in their color zones, the teacher's lectern, and central aisle
-      const isMobilePortrait = (containerRef.current?.clientWidth || window.innerWidth) < 768;
-      if (isMobilePortrait) {
-        targetCamPosRef.current = new THREE.Vector3(-0.65, 9.4, 5.6);
-        targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);
-      } else {
-        targetCamPosRef.current = new THREE.Vector3(-0.65, 7.2, 3.4);
-        targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);
-      }
+      // Perspective inside room framing all 46 desks, teacher lectern, and blackboard
+      targetCamPosRef.current = new THREE.Vector3(-0.65, 5.2, 3.8);
+      targetLookAtRef.current = new THREE.Vector3(-0.65, 0.7, -2.4);
     } else if (preset === 'podium') {
       // First-person Professor's perspective standing behind the lectern looking out at all students
-      targetCamPosRef.current = new THREE.Vector3(-4.4, 1.88, -8.25);
+      targetCamPosRef.current = new THREE.Vector3(-4.4, 1.88, -8.2);
       targetLookAtRef.current = new THREE.Vector3(-0.6, 1.35, -1.0);
     } else if (preset === 'myseat') {
       // First-person Student's perspective seated at their desk looking ahead at the Smart Board

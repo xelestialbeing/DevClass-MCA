@@ -324,404 +324,360 @@
 
 .classroom-top-hud {
   position: absolute;
-  top: 18px;
-  left: 24px;
-  right: 24px;
+  top: max(12px, env(safe-area-inset-top, 12px));
+  left: max(14px, env(safe-area-inset-left, 14px));
+  right: max(14px, env(safe-area-inset-right, 14px));
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   z-index: 50;
   pointer-events: none;
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 
 .hud-island {
   pointer-events: auto;
-  background: rgba(11, 19, 38, 0.9);
+  background: rgba(15, 23, 42, 0.82);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(56, 189, 248, 0.22);
-  border-radius: 12px;
-  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.55), 0 0 20px rgba(6, 182, 212, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .hud-island:hover {
   border-color: rgba(56, 189, 248, 0.38);
-  box-shadow: 0 16px 42px -4px rgba(0, 0, 0, 0.65), 0 0 24px rgba(6, 182, 212, 0.14);
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.6), 0 0 18px rgba(56, 189, 248, 0.16);
 }
 
-/* Left Telemetry Island */
+/* Left Brand Capsule */
 .hud-brand-card {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px 16px;
-  min-width: 170px;
+  padding: 0 10px;
+  gap: 7px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
-.hud-brand-header {
-  display: flex;
+.hud-brand-unit {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .hud-live-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #10b981;
   box-shadow: 0 0 8px #10b981;
+  flex-shrink: 0;
+  animation: pulseGreen 2.5s infinite;
 }
 
-.hud-room-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #f8fafc;
-}
-
-.hud-batch-badge {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  letter-spacing: 0.02em;
-}
-
-.hud-account-status {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 4px;
-  letter-spacing: 0.02em;
-  user-select: none;
-}
-
-.hud-account-status.active {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.hud-account-status.pending {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+.hud-live-dot.pending {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
   animation: pulseAmber 2.5s infinite;
 }
 
+@keyframes pulseGreen {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(0.92); }
+}
+
 @keyframes pulseAmber {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(0.92); }
+}
+
+.hud-room-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+.hud-room-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 0.60rem;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+
+.hud-island-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 0 1px;
+  flex-shrink: 0;
 }
 
 .hud-attendance-meta {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 1px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .hud-count-wrap {
   display: inline-flex;
   align-items: baseline;
-  gap: 3px;
+  gap: 2px;
   white-space: nowrap;
 }
 
 .hud-count-highlight {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.95rem;
+  font-size: 0.84rem;
   font-weight: 700;
   color: #38bdf8;
 }
 
 .hud-count-total {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.70rem;
   font-weight: 500;
   color: #64748b;
 }
 
 .hud-count-label {
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   color: #94a3b8;
-  margin-left: 4px;
+  margin-left: 2px;
 }
 
-/* Right Profile & Actions Island */
-.hud-actions-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  height: 48px;
-  box-sizing: border-box;
-}
-
-.hud-profile-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 8px 4px 4px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-  user-select: none;
-}
-
-.hud-profile-chip:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.hud-avatar-img,
-.hud-avatar-fallback {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  object-fit: cover;
-  background: #2563eb;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.hud-profile-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.hud-username {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #f1f5f9;
-  letter-spacing: -0.01em;
-}
-
-.hud-bio {
-  font-size: 0.68rem;
-  color: #94a3b8;
-  font-style: italic;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hud-island-divider {
-  width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.12);
-  margin: 0 2px;
-}
-
-.hud-icon-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: #e2e8f0;
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  user-select: none;
-}
-
-.hud-icon-action svg {
-  flex-shrink: 0;
-}
-
-.hud-icon-action:hover {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(168, 85, 247, 0.25));
-  color: #ffffff;
-  border-color: rgba(56, 189, 248, 0.45);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.2);
-}
-
-.hud-icon-action.exit-action {
-  color: #e2e8f0;
-}
-
-.hud-icon-action.exit-action:hover {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ffffff;
-  border-color: rgba(239, 68, 68, 0.5);
-  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25);
-  transform: translateY(-1px);
-}
-
-/* Quick 1-tap Attendance Badge in Top HUD */
 .hud-quick-attend-btn {
-  margin-left: 6px;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(6, 182, 212, 0.28));
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.32), rgba(6, 182, 212, 0.32));
   border: 1px solid rgba(52, 211, 153, 0.45);
   color: #34d399;
   font-family: inherit;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 9999px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   letter-spacing: 0.02em;
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
 }
 
 .hud-quick-attend-btn:hover {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.45), rgba(6, 182, 212, 0.45));
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.52), rgba(6, 182, 212, 0.52));
   color: #ffffff;
   border-color: #34d399;
   transform: translateY(-1px);
 }
 
 .hud-quick-seat-badge {
-  margin-left: 6px;
   background: rgba(16, 185, 129, 0.18);
   border: 1px solid rgba(16, 185, 129, 0.35);
   color: #34d399;
   font-family: ui-monospace, monospace;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: 9999px;
   white-space: nowrap;
 }
 
+/* Right Actions Capsule */
+.hud-actions-card {
+  padding: 0 5px;
+  gap: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.hud-profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+}
+
+.hud-profile-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hud-avatar-img,
+.hud-avatar-fallback {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  border: 1.5px solid rgba(56, 189, 248, 0.4);
+  flex-shrink: 0;
+}
+
+.hud-username {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+  max-width: 85px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.hud-icon-action:hover {
+  background: rgba(56, 189, 248, 0.22);
+  color: #ffffff;
+  border-color: rgba(56, 189, 248, 0.45);
+  transform: translateY(-1px);
+}
+
+.hud-icon-action.exit-action:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Responsive Adaptations */
 @media (max-width: 768px) {
   .classroom-top-hud {
     top: max(8px, env(safe-area-inset-top, 8px));
     left: max(8px, env(safe-area-inset-left, 8px));
     right: max(8px, env(safe-area-inset-right, 8px));
     gap: 6px;
-    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .hud-island {
+    height: 35px;
   }
 
   .hud-brand-card {
-    min-width: 0;
-    padding: 6px 9px;
-    flex: 1 1 auto;
-    max-width: calc(100vw - 146px);
-    overflow: hidden;
-  }
-
-  .hud-brand-header {
+    padding: 0 8px;
     gap: 5px;
-    white-space: nowrap;
-  }
-
-  .hud-room-code {
-    font-size: 0.72rem;
-    white-space: nowrap;
-  }
-
-  .hud-batch-badge {
-    display: none; /* Keep clean on small phones */
-  }
-
-  .hud-account-status {
-    font-size: 0.58rem;
-    padding: 1px 5px;
-    white-space: nowrap;
-  }
-
-  .hud-attendance-meta {
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 4px;
+    max-width: calc(100vw - 128px);
     overflow: hidden;
-    margin-top: 2px;
   }
 
-  .hud-count-wrap {
-    white-space: nowrap;
-    flex-shrink: 0;
+  .hud-room-name {
+    font-size: 0.70rem;
+  }
+
+  .hud-room-badge {
+    font-size: 0.55rem;
+    padding: 0 4px;
   }
 
   .hud-count-highlight {
-    font-size: 0.88rem;
+    font-size: 0.80rem;
   }
 
   .hud-count-total {
-    font-size: 0.72rem;
+    font-size: 0.66rem;
   }
 
   .hud-count-label {
-    font-size: 0.65rem;
-    margin-left: 2px;
+    display: none; /* Hide 'Present' text on phones so count is concise 0/46 */
   }
 
   .hud-quick-attend-btn {
+    font-size: 0.60rem;
     padding: 2px 6px;
-    font-size: 0.62rem;
-    flex-shrink: 0;
-    margin-left: 3px;
-    white-space: nowrap;
   }
 
   .hud-quick-seat-badge {
+    font-size: 0.60rem;
     padding: 1px 5px;
-    font-size: 0.62rem;
-    flex-shrink: 0;
-    margin-left: 3px;
-    white-space: nowrap;
   }
 
   .hud-actions-card {
-    padding: 4px 6px;
-    height: 40px;
-    gap: 5px;
-    flex-shrink: 0;
+    padding: 0 4px;
+    gap: 3px;
   }
 
   .hud-profile-chip {
-    padding: 2px;
-    gap: 5px;
+    padding: 1px 4px 1px 1px;
+    gap: 4px;
   }
 
   .hud-avatar-img,
   .hud-avatar-fallback {
-    width: 26px;
-    height: 26px;
-    font-size: 0.70rem;
-    border-radius: 6px;
+    width: 24px;
+    height: 24px;
+    font-size: 0.68rem;
   }
 
   .hud-username {
-    font-size: 0.70rem;
-    max-width: 68px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .hud-bio {
-    display: none;
+    font-size: 0.68rem;
+    max-width: 48px; /* Tightly truncated on phone */
   }
 
   .hud-icon-action {
-    padding: 5px 7px;
-    font-size: 0.70rem;
+    width: 26px;
+    height: 26px;
   }
 
-  .hud-icon-action span {
-    display: none; /* Icon-only on mobile fits effortlessly without cramping */
+  .hud-icon-action svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+@media (max-width: 380px) {
+  .hud-username {
+    display: none; /* Icon-only avatar button on ultra-narrow 320px-360px phones */
+  }
+
+  .hud-brand-card {
+    max-width: calc(100vw - 98px);
   }
 }
 

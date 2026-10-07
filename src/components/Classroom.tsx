@@ -219,20 +219,18 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     <div className="classroom-container fullscreen-3d">
       {/* Top Floating Spatial HUD Islands */}
       <div className="classroom-top-hud">
-        {/* Left Island: Room Status & Attendance Badge */}
+        {/* Left Compact Capsule: DEVCLASS MCA + Live Attendance */}
         <div className="hud-island hud-brand-card">
-          <div className="hud-brand-header">
-            <span className="hud-live-dot" />
-            <span className="hud-room-code">DEVCLASS MCA</span>
-            <span className="hud-batch-badge">2026</span>
-            <span className={`hud-account-status ${isApproved ? 'active' : 'pending'}`} title={isApproved ? 'Active Verified Account' : 'Account Pending Admin Verification'}>
-              {isApproved ? '● Active' : '⏳ Pending Approval'}
-            </span>
+          <div className="hud-brand-unit">
+            <span className={`hud-live-dot ${isApproved ? 'active' : 'pending'}`} title={isApproved ? 'Classroom Online' : 'Pending Verification'} />
+            <span className="hud-room-name">DEVCLASS</span>
+            <span className="hud-room-badge">MCA</span>
           </div>
+          <div className="hud-island-divider" />
           <div className="hud-attendance-meta">
-            <div className="hud-count-wrap">
+            <div className="hud-count-wrap" title={`${totalComing} of 46 students attending tomorrow`}>
               <span className="hud-count-highlight">{totalComing}</span>
-              <span className="hud-count-total">/ 46</span>
+              <span className="hud-count-total">/46</span>
               <span className="hud-count-label">Present</span>
             </div>
             {mySeat === null && isApproved ? (
@@ -242,7 +240,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
                 onClick={handleRandomSeat}
                 title="1-tap attendance: claim an available desk"
               >
-                + I'm Coming
+                + Coming
               </button>
             ) : mySeat !== null ? (
               <span className="hud-quick-seat-badge" title="Your confirmed seat">
@@ -252,12 +250,14 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           </div>
         </div>
 
-        {/* Right Island: Student Profile & Navigation */}
+        {/* Right Compact Capsule: Student Profile & Navigation */}
         <div className="hud-island hud-actions-card">
-          <div 
+          <button 
+            type="button"
             onClick={() => setShowProfileModal(true)}
             className="hud-profile-chip"
-            title="Click to view profile & edit catchphrase"
+            title="Edit profile & catchphrase"
+            aria-label="Student profile settings"
           >
             {user?.avatarUrl ? (
               <img
@@ -270,11 +270,8 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
                 {user?.avatar || user?.username?.charAt(0).toUpperCase() || 'S'}
               </div>
             )}
-            <div className="hud-profile-text">
-              <span className="hud-username">@{user?.username || 'Student'}</span>
-              <span className="hud-bio">"{user?.catchphrase || 'Class of 2026'}"</span>
-            </div>
-          </div>
+            <span className="hud-username">@{user?.username || 'Student'}</span>
+          </button>
 
           <div className="hud-island-divider" />
 
@@ -289,11 +286,11 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
               addToast('Connecting to DevClass MCA frequency...', 'info', 'Chat Channel');
             }}
             title="Open Campus Chat"
+            aria-label="Open Chat"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
-            <span>Chat</span>
           </button>
 
           {onSignOut && (
@@ -302,13 +299,13 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
               className="hud-icon-action exit-action" 
               onClick={onSignOut} 
               title="Return to Terminal"
+              aria-label="Sign Out"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                 <polyline points="16 17 21 12 16 7"></polyline>
                 <line x1="21" y1="12" x2="9" y2="12"></line>
               </svg>
-              <span>Exit</span>
             </button>
           )}
         </div>
