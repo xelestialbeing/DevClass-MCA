@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CrtBackground } from './shaders/crt/CrtBackground';
 import { UplinkLoader } from './shaders/uplink-loader/UplinkLoader';
 import { supabaseService, UserProfile } from './lib/supabase';
-
-const Classroom = lazy(() => import('./components/Classroom').then((m) => ({ default: m.Classroom })));
-const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })));
+import { Classroom } from './components/Classroom';
+import { AuthModal } from './components/AuthModal';
 import './shaders/threeui.css';
 import './App.css';
 
@@ -32,17 +31,25 @@ export function App() {
 
   // Check if returning from Google OAuth redirect on page load
   useEffect(() => {
+    const isOAuthRedirect = window.location.hash.includes('access_token') || window.location.search.includes('code=');
+    if (isOAuthRedirect) {
+      setIsAuthenticating(true);
+      setAuthStatusMessage('VERIFYING GOOGLE AUTHENTICATION...');
+    }
+
     const checkRedirect = async () => {
       const result = await supabaseService.checkGoogleCallback();
       if (result) {
         if (result.needsSetup && result.googleAccount) {
-          // New student: prompt for Username onboarding
+          setIsAuthenticating(false);
           setPendingGoogleAccount(result.googleAccount);
           setShowAuthModal(true);
         } else if (result.existingUser) {
-          // Existing student: straight to classroom
+          // Existing student: straight to classroom with single seamless transition
           handleAuthSuccess(result.existingUser);
         }
+      } else if (isOAuthRedirect) {
+        setIsAuthenticating(false);
       }
     };
 
@@ -170,13 +177,9 @@ export function App() {
     setPendingGoogleAccount(null);
   };
 
-  // If in Classroom, show classroom view
+  // If in Classroom, show classroom view directly
   if (inClassroom) {
-    return (
-      <Suspense fallback={<UplinkLoader />}>
-        <Classroom currentUser={currentUser} onSignOut={handleSignOut} />
-      </Suspense>
-    );
+    return <Classroom currentUser={currentUser} onSignOut={handleSignOut} />;
   }
 
   return (
@@ -312,13 +315,11 @@ export function App() {
 
       {/* Cyberpunk First-Time Setup Modal (Face ID + Username + Locked Phone + Catchphrase) */}
       {showAuthModal && (
-        <Suspense fallback={null}>
-          <AuthModal
-            googleAccount={pendingGoogleAccount}
-            onClose={() => setShowAuthModal(false)}
-            onAuthSuccess={handleAuthSuccess}
-          />
-        </Suspense>
+        <AuthModal
+          googleAccount={pendingGoogleAccount}
+          onClose={() => setShowAuthModal(false)}
+          onAuthSuccess={handleAuthSuccess}
+        />
       )}
     </div>
   );

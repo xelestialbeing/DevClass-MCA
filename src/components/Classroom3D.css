@@ -716,7 +716,9 @@
    ============================================================== */
 @media (max-width: 820px) {
   .classroom-bottom-hud {
-    bottom: max(10px, env(safe-area-inset-bottom, 10px));
+    bottom: max(14px, env(safe-area-inset-bottom, 14px));
+    left: 8px;
+    right: 8px;
     gap: 6px;
   }
 
@@ -735,14 +737,16 @@
     width: 100%;
     justify-content: space-between;
     padding: 3px;
+    box-sizing: border-box;
   }
 
   .segment-btn {
     flex: 1;
     justify-content: center;
-    padding: 6px 8px;
+    padding: 7px 6px;
     font-size: 0.72rem;
     gap: 4px;
+    min-height: 36px;
   }
 
   .spatial-reservation-card {
@@ -755,6 +759,11 @@
     width: 100%;
     justify-content: space-between;
     padding: 2px 4px;
+    gap: 8px;
+  }
+
+  .reservation-seat-code {
+    font-size: 0.76rem;
   }
 
   .reservation-actions-row {
@@ -764,15 +773,18 @@
   .reservation-btn {
     padding: 6px 10px;
     font-size: 0.72rem;
-    min-height: 36px;
+    min-height: 34px;
   }
 
+  /* Fixed mobile positioning cleanly below top HUD - no collision */
   .seat-hover-card {
-    top: 60px;
+    top: calc(max(8px, env(safe-area-inset-top, 8px)) + 52px);
     left: 10px;
     right: 10px;
-    max-width: unset;
+    max-width: calc(100vw - 20px);
     padding: 8px 12px;
+    z-index: 55;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 16px rgba(6, 182, 212, 0.2);
   }
 }
 

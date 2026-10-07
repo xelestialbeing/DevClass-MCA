@@ -105,26 +105,28 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     scene.fog = new THREE.FogExp2(0xdde8f2, 0.007); // Gentle airy daylight haze
     sceneRef.current = scene;
 
-    // CAMERA (Calibrated to natural elevated auditorium perspective matching reference photo)
+    // CAMERA & MOBILE DETECTION
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || width < 768;
     const isMobilePortrait = width < 768 && height > width;
-    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 60 : 46, width / height, 0.25, 60);
+    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 58 : 46, width / height, 0.25, 60);
     if (isMobilePortrait) {
-      camera.position.set(-0.65, 9.2, 5.2);
+      camera.position.set(-0.65, 9.4, 5.6);
     } else {
       camera.position.set(-0.65, 7.2, 3.4);
     }
     cameraRef.current = camera;
 
-    // RENDERER (logarithmicDepthBuffer eliminates all micro-flickering)
+    // RENDERER (Optimized for mobile GPUs - capped DPR, efficient shadows, no shader stalls)
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isMobile, // Major mobile GPU fill-rate optimization
       powerPreference: 'high-performance',
-      logarithmicDepthBuffer: true,
+      logarithmicDepthBuffer: !isMobile, // Eliminates mobile early-Z GPU stalls
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // Mobile DPR cap to 1.15 max per 3D performance guidelines
+    renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio || 1, 1.15) : Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isMobile ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
@@ -152,8 +154,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     const sunLight = new THREE.DirectionalLight(0xfff5dd, 1.6);
     sunLight.position.set(9.5, 13, 2.5);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.mapSize.width = isMobile ? 1024 : 2048;
+    sunLight.shadow.mapSize.height = isMobile ? 1024 : 2048;
     sunLight.shadow.camera.near = 0.5;
     sunLight.shadow.camera.far = 30;
     sunLight.shadow.camera.left = -11;
@@ -169,12 +171,12 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     skyFillLight.position.set(-8, 9, 5);
     scene.add(skyFillLight);
 
-    // Warm Ceiling Downlights (soft warm glow pools over desks)
-    const downlightAisleLeft = new THREE.PointLight(0xfef08a, 0.65, 10);
+    // Warm Ceiling Downlights
+    const downlightAisleLeft = new THREE.PointLight(0xfef08a, isMobile ? 0.35 : 0.65, 8);
     downlightAisleLeft.position.set(-3.5, 5.2, -2.0);
     scene.add(downlightAisleLeft);
 
-    const downlightAisleRight = new THREE.PointLight(0x7dd3fc, 0.55, 10);
+    const downlightAisleRight = new THREE.PointLight(0x7dd3fc, isMobile ? 0.3 : 0.55, 8);
     downlightAisleRight.position.set(2.6, 5.2, -2.0);
     scene.add(downlightAisleRight);
 
@@ -1198,17 +1200,26 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     const deskMap = new Map<number, { group: THREE.Group; tablet: THREE.Mesh; seat: THREE.Mesh }>();
     const interactiveTargets: THREE.Object3D[] = [];
 
+    // Cache base row materials so 46 desks don't allocate 46 unique materials
+    const sharedChairMatMap = new Map<number, THREE.MeshStandardMaterial>();
+    const getSharedChairMat = (col: number) => {
+      if (!sharedChairMatMap.has(col)) {
+        sharedChairMatMap.set(col, new THREE.MeshStandardMaterial({
+          color: col,
+          roughness: 0.38,
+          metalness: 0.08,
+        }));
+      }
+      return sharedChairMatMap.get(col)!;
+    };
+
     function createDesk(seatNum: number, x: number, z: number) {
       const deskGroup = new THREE.Group();
       deskGroup.position.set(x, 0, z);
 
       // 1. Contoured Chair Bucket Seat (Harmonious Chromatic Collegiate Zone)
       const baseRowColor = getSeatRowColor(seatNum);
-      const chairMat = new THREE.MeshStandardMaterial({
-        color: baseRowColor,
-        roughness: 0.38,
-        metalness: 0.08,
-      });
+      const chairMat = getSharedChairMat(baseRowColor).clone();
       const seatMesh = new THREE.Mesh(seatBaseGeo, chairMat);
       seatMesh.position.set(0, 0.72, 0);
       seatMesh.castShadow = true;
@@ -1232,7 +1243,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       legPositions.forEach(([lx, ly, lz]) => {
         const leg = new THREE.Mesh(legCylinderGeo, chromeLegMat);
         leg.position.set(lx, ly, lz);
-        leg.castShadow = true;
+        leg.castShadow = !isMobile;
         deskGroup.add(leg);
       });
 
@@ -1243,6 +1254,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       // 3. Right-hand Armrest & Tablet Stand
       const armStand = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.45), chromeLegMat);
       armStand.position.set(0.38, 0.95, -0.05);
+      armStand.castShadow = !isMobile;
       deskGroup.add(armStand);
 
       // Writing Tablet Desk (Warm Light Natural Honey Birch Wood)
@@ -1256,23 +1268,24 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       deskGroup.add(tabletMesh);
 
       // 4. Stenciled Seat Number Badge
+      const cvSize = isMobile ? 64 : 128;
       const numCanvas = document.createElement('canvas');
-      numCanvas.width = 128;
-      numCanvas.height = 128;
+      numCanvas.width = cvSize;
+      numCanvas.height = cvSize;
       const nctx = numCanvas.getContext('2d')!;
       nctx.fillStyle = '#0f172a';
       nctx.beginPath();
-      nctx.arc(64, 64, 52, 0, Math.PI * 2);
+      nctx.arc(cvSize / 2, cvSize / 2, cvSize * 0.41, 0, Math.PI * 2);
       nctx.fill();
       nctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-      nctx.lineWidth = 4;
+      nctx.lineWidth = cvSize > 64 ? 4 : 2;
       nctx.stroke();
 
       nctx.fillStyle = '#ffffff';
-      nctx.font = 'bold 50px monospace';
+      nctx.font = `bold ${cvSize > 64 ? 50 : 25}px monospace`;
       nctx.textAlign = 'center';
       nctx.textBaseline = 'middle';
-      nctx.fillText(seatNum < 10 ? `0${seatNum}` : `${seatNum}`, 64, 64);
+      nctx.fillText(seatNum < 10 ? `0${seatNum}` : `${seatNum}`, cvSize / 2, cvSize / 2);
 
       const numTex = new THREE.CanvasTexture(numCanvas);
       const numBadge = new THREE.Mesh(
@@ -1349,6 +1362,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     };
 
     const handlePointerMove = (e: MouseEvent) => {
+      // Avoid expensive raycasting during touch-drag manipulation on mobile screens
+      if (isMobile) return;
       const seatNo = findIntersectedSeat(e.clientX, e.clientY);
       if (seatNo) {
         setHoveredSeat(seatNo);
@@ -1380,7 +1395,17 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
         const seatNo = findIntersectedSeat(e.clientX, e.clientY);
         if (seatNo) {
           onSeatSelect(seatNo);
-          setHoveredSeat(seatNo);
+          // On mobile, only open hover detail card if it's another student's seat
+          if (!isMobile) {
+            setHoveredSeat(seatNo);
+          } else {
+            const occupant = votes.find((v) => v.seatNumber === seatNo);
+            if (occupant && occupant.seatNumber !== mySeat) {
+              setHoveredSeat(seatNo);
+            } else {
+              setHoveredSeat(null);
+            }
+          }
 
           if (activePreset === 'myseat' && deskMap.has(seatNo)) {
             const dg = deskMap.get(seatNo)!.group;
@@ -1392,8 +1417,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     };
 
     const handlePointerClick = (e: MouseEvent) => {
-      // Prevent double trigger if pointerup handled it
-      if (performance.now() - lastTapTime < 450) return;
+      // Prevent double trigger if pointerup handled it, or on touch mobile
+      if (isMobile || performance.now() - lastTapTime < 450) return;
       const seatNo = findIntersectedSeat(e.clientX, e.clientY);
       if (seatNo) {
         onSeatSelect(seatNo);
@@ -1569,8 +1594,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       // Perfectly frames all 46 desks in their color zones, the teacher's lectern, and central aisle
       const isMobilePortrait = (containerRef.current?.clientWidth || window.innerWidth) < 768;
       if (isMobilePortrait) {
-        targetCamPosRef.current = new THREE.Vector3(-0.65, 9.2, 5.2);
-        targetLookAtRef.current = new THREE.Vector3(-0.65, 0.5, -2.2);
+        targetCamPosRef.current = new THREE.Vector3(-0.65, 9.4, 5.6);
+        targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);
       } else {
         targetCamPosRef.current = new THREE.Vector3(-0.65, 7.2, 3.4);
         targetLookAtRef.current = new THREE.Vector3(-0.65, 0.6, -2.4);

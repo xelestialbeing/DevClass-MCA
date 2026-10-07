@@ -230,9 +230,11 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
             </span>
           </div>
           <div className="hud-attendance-meta">
-            <span className="hud-count-highlight">{totalComing}</span>
-            <span className="hud-count-total">/ 46</span>
-            <span className="hud-count-label">Present</span>
+            <div className="hud-count-wrap">
+              <span className="hud-count-highlight">{totalComing}</span>
+              <span className="hud-count-total">/ 46</span>
+              <span className="hud-count-label">Present</span>
+            </div>
             {mySeat === null && isApproved ? (
               <button
                 type="button"
