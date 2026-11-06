@@ -31,7 +31,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isSending, setIsSending] = useState(false);
+  const [isDispatchingAnim, setIsDispatchingAnim] = useState(false);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [showInfoSheet, setShowInfoSheet] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,20 +103,35 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [isOpen]);
 
-  // Fetch messages and poll regularly
+  // Fetch messages with smart merge (prevents overwriting in-flight optimistic messages)
   useEffect(() => {
     if (!isOpen) return;
 
     let isMounted = true;
     const fetchMessages = async () => {
       const data = await supabaseService.getChatMessages(80);
-      if (isMounted) {
-        setMessages(data);
-      }
+      if (!isMounted) return;
+
+      setMessages((prev) => {
+        const inFlight = prev.filter((m) => m.id.startsWith('temp_'));
+
+        // Skip re-render if data is unchanged
+        if (
+          inFlight.length === 0 &&
+          prev.length === data.length &&
+          prev[prev.length - 1]?.id === data[data.length - 1]?.id
+        ) {
+          return prev;
+        }
+
+        const confirmedIds = new Set(data.map((d) => d.id));
+        const stillPending = inFlight.filter((opt) => !confirmedIds.has(opt.id));
+        return [...data, ...stillPending];
+      });
     };
 
     fetchMessages();
-    const interval = setInterval(fetchMessages, 2500);
+    const interval = setInterval(fetchMessages, 1500);
 
     return () => {
       isMounted = false;
@@ -159,42 +174,63 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [inputText]);
 
-  const handleSendMessage = async () => {
+  // Instant Optimistic Message Dispatch (0ms UI latency with tactile spring animations)
+  const handleSendMessage = () => {
     const text = inputText.trim();
-    if (!text || isSending || !isApproved) return;
+    if (!text || !isApproved) return;
 
     const username = currentUsername || 'student';
     const userId = currentUser?.id;
     const avatarUrl = currentUser?.avatarUrl;
 
-    setIsSending(true);
+    // 1. Trigger immediate button pop/spring animation
+    setIsDispatchingAnim(true);
+    setTimeout(() => setIsDispatchingAnim(false), 360);
+
+    // 2. Generate optimistic temporary message for 0ms visual rendering
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      userId,
+      username,
+      avatarUrl,
+      seatNumber: mySeat,
+      content: text,
+      reactions: {},
+      createdAt: new Date().toISOString(),
+    };
+
+    // 3. Append to state instantly and clear input
+    setMessages((prev) => [...prev, optimisticMsg]);
     setInputText('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    try {
-      const sent = await supabaseService.sendChatMessage({
-        userId,
-        username,
-        avatarUrl,
-        seatNumber: mySeat,
-        content: text,
-      });
+    // 4. Smoothly scroll into view
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 20);
 
-      if (sent) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === sent.id)) return prev;
-          return [...prev, sent];
-        });
-        setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 50);
+    // 5. Asynchronously persist to Supabase in background
+    supabaseService.sendChatMessage({
+      userId,
+      username,
+      avatarUrl,
+      seatNumber: mySeat,
+      content: text,
+    }).then((confirmed) => {
+      if (confirmed) {
+        // Swap temp ID with the real database record
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? confirmed : m))
+        );
       }
-    } finally {
-      setIsSending(false);
+    }).catch((err) => {
+      console.warn('Message dispatch failed:', err);
+    }).finally(() => {
       setTimeout(() => {
         textareaRef.current?.focus();
-      }, 40);
-    }
+      }, 30);
+    });
   };
 
   const handleKeyDownTextarea = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -435,11 +471,28 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
           </div>
 
           <div className="navbar-right-cluster">
+            {currentUser && (
+              <button
+                type="button"
+                className="navbar-profile-btn"
+                onClick={() => handleOpenUserProfile(currentUser.username, currentUser.avatarUrl, currentUser.id)}
+                title="View & edit your student profile"
+                aria-label="Student Profile"
+              >
+                {currentUser.avatarUrl ? (
+                  <img src={currentUser.avatarUrl} alt={currentUser.username} className="navbar-profile-avatar" />
+                ) : (
+                  <div className="navbar-profile-initial">
+                    {currentUser.username?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                )}
+              </button>
+            )}
             <button
               type="button"
               className={`navbar-info-toggle ${showInfoSheet ? 'active' : ''}`}
               onClick={() => setShowInfoSheet((v) => !v)}
-              title="Room Details"
+              title="Classmates & Room Details"
               aria-label="Conversation details"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -553,7 +606,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
                         {/* Interactive Message Bubble */}
                         <div
-                          className={`chat-bubble ${isMine ? 'outgoing' : 'incoming'}`}
+                          className={`chat-bubble ${isMine ? 'outgoing' : 'incoming'} ${msg.id.startsWith('temp_') ? 'optimistic' : ''}`}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setActiveReactionMsgId(msg.id);
@@ -700,15 +753,14 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                 onKeyDown={handleKeyDownTextarea}
                 rows={1}
                 maxLength={1000}
-                disabled={isSending}
               />
 
-              {/* Send Button */}
+              {/* Send Button with Tactile Spring Animation */}
               <button
                 type="button"
-                className={`composer-send-btn ${inputText.trim() ? 'active' : ''}`}
+                className={`composer-send-btn ${inputText.trim() ? 'active' : ''} ${isDispatchingAnim ? 'dispatching' : ''}`}
                 onClick={handleSendMessage}
-                disabled={!inputText.trim() || isSending}
+                disabled={!inputText.trim()}
                 title="Send"
                 aria-label="Send"
               >

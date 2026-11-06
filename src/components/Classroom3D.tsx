@@ -9,6 +9,7 @@ export interface StudentVote {
   username: string;
   avatar: string;
   catchphrase?: string;
+  avatarUrl?: string;
 }
 
 interface Classroom3DProps {
@@ -27,6 +28,7 @@ interface Classroom3DProps {
   } | null;
   boardAnnouncement?: string;
   onPendingNotice?: () => void;
+  onInspectUser?: (user: { username: string; userId?: string; avatarUrl?: string; catchphrase?: string }) => void;
 }
 
 type CameraPreset = 'overview' | 'podium' | 'myseat';
@@ -72,6 +74,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
   currentUser,
   boardAnnouncement = 'CLASSROOM S01 - WELCOME',
   onPendingNotice,
+  onInspectUser,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredSeat, setHoveredSeat] = useState<number | null>(null);
@@ -1656,27 +1659,61 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                 <span style={{ color: '#10b981', fontSize: '0.74rem', fontWeight: 600 }}>
                   ✔ Confirmed for tomorrow
                 </span>
-                {onClearSeat && (
-                  <button
-                    type="button"
-                    className="seat-action-btn release"
-                    onClick={() => {
-                      onClearSeat();
-                      setHoveredSeat(null);
-                    }}
-                  >
-                    Release Seat
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                  {onInspectUser && currentUser && (
+                    <button
+                      type="button"
+                      className="seat-action-btn inspect"
+                      onClick={() => {
+                        onInspectUser({
+                          username: currentUser.username,
+                          avatarUrl: currentUser.avatarUrl,
+                          catchphrase: currentUser.catchphrase,
+                        });
+                        setHoveredSeat(null);
+                      }}
+                      title="View & edit your student profile"
+                    >
+                      My Profile
+                    </button>
+                  )}
+                  {onClearSeat && (
+                    <button
+                      type="button"
+                      className="seat-action-btn release"
+                      onClick={() => {
+                        onClearSeat();
+                        setHoveredSeat(null);
+                      }}
+                    >
+                      Release
+                    </button>
+                  )}
+                </div>
               </div>
             ) : hoveredOccupant ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ color: '#60a5fa', fontWeight: 600, fontSize: '0.78rem' }}>
-                  @{hoveredOccupant.username}
-                </span>
-                <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.70rem' }}>
-                  "{hoveredOccupant.catchphrase || 'Sitting here tomorrow'}"
-                </span>
+              <div className="seat-hover-action-col">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <span style={{ color: '#60a5fa', fontWeight: 600, fontSize: '0.78rem' }}>
+                    @{hoveredOccupant.username}
+                  </span>
+                  <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.70rem' }}>
+                    "{hoveredOccupant.catchphrase || 'Sitting here tomorrow'}"
+                  </span>
+                </div>
+                {onInspectUser && (
+                  <button
+                    type="button"
+                    className="seat-action-btn inspect"
+                    onClick={() => {
+                      onInspectUser(hoveredOccupant);
+                      setHoveredSeat(null);
+                    }}
+                    title={`View @${hoveredOccupant.username}'s profile`}
+                  >
+                    View Student Profile
+                  </button>
+                )}
               </div>
             ) : (
               <div className="seat-hover-action-col">
@@ -1920,15 +1957,22 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                         <button
                           key={sNum}
                           type="button"
-                          disabled={isOccupied && !isMine}
                           className={`seat-grid-cell ${isMine ? 'mine' : isOccupied ? 'occupied' : 'available'}`}
                           onClick={() => {
-                            onSeatSelect(sNum);
-                            setShowSeatPickerModal(false);
-                            setMySeatCameraTarget(sNum);
-                            setActivePreset('myseat');
+                            if (isOccupied && !isMine && occupant) {
+                              if (onInspectUser) {
+                                onInspectUser(occupant);
+                              } else {
+                                onSeatSelect(sNum);
+                              }
+                            } else {
+                              onSeatSelect(sNum);
+                              setShowSeatPickerModal(false);
+                              setMySeatCameraTarget(sNum);
+                              setActivePreset('myseat');
+                            }
                           }}
-                          title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username}` : `Seat #${sNum} Available`}
+                          title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username} (Click to view profile)` : `Seat #${sNum} Available`}
                         >
                           <span className="cell-num">{sNum < 10 ? `0${sNum}` : sNum}</span>
                           <span className="cell-tag">
@@ -1958,15 +2002,22 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                         <button
                           key={sNum}
                           type="button"
-                          disabled={isOccupied && !isMine}
                           className={`seat-grid-cell ${isMine ? 'mine' : isOccupied ? 'occupied' : 'available'}`}
                           onClick={() => {
-                            onSeatSelect(sNum);
-                            setShowSeatPickerModal(false);
-                            setMySeatCameraTarget(sNum);
-                            setActivePreset('myseat');
+                            if (isOccupied && !isMine && occupant) {
+                              if (onInspectUser) {
+                                onInspectUser(occupant);
+                              } else {
+                                onSeatSelect(sNum);
+                              }
+                            } else {
+                              onSeatSelect(sNum);
+                              setShowSeatPickerModal(false);
+                              setMySeatCameraTarget(sNum);
+                              setActivePreset('myseat');
+                            }
                           }}
-                          title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username}` : `Seat #${sNum} Available`}
+                          title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username} (Click to view profile)` : `Seat #${sNum} Available`}
                         >
                           <span className="cell-num">{sNum < 10 ? `0${sNum}` : sNum}</span>
                           <span className="cell-tag">

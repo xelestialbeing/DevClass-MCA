@@ -35,6 +35,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     return null;
   });
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [inspectClassmate, setInspectClassmate] = useState<UserProfile | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(() => window.location.hash === '#chat');
   const [boardMessage] = useState("DEVCLASS MCA - WELCOME");
   const [modalConfig, setModalConfig] = useState<SpatialModalProps | null>(null);
@@ -185,6 +186,36 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
 
   const totalComing = votes.length + (mySeat !== null ? 1 : 0);
 
+  // Inspect student profile on click (read-only for classmates, editable for self)
+  const handleInspectStudent = async (student: { username: string; userId?: string; avatarUrl?: string; catchphrase?: string }) => {
+    if (!student.username) return;
+    const clean = student.username.replace(/^@/, '').trim();
+    if (user && user.username.toLowerCase() === clean.toLowerCase()) {
+      setShowProfileModal(true);
+      return;
+    }
+
+    const placeholder: UserProfile = {
+      id: student.userId || `usr_${clean}`,
+      username: clean,
+      avatar: clean.charAt(0).toUpperCase(),
+      avatarUrl: student.avatarUrl,
+      catchphrase: student.catchphrase || 'DevClass MCA Student',
+      faceScanStatus: 'verified',
+      isApproved: true,
+    };
+    setInspectClassmate(placeholder);
+
+    try {
+      const full = await supabaseService.getUserByUsername(clean, false);
+      if (full) {
+        setInspectClassmate(full);
+      }
+    } catch {
+      // Keep placeholder
+    }
+  };
+
   const handleSeatClick = (seatNumber: number) => {
     if (!isApproved) {
       showPendingApprovalNotice();
@@ -193,7 +224,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
 
     const isOccupied = votes.find((v) => v.seatNumber === seatNumber);
     if (isOccupied) {
-      addToast(`Seat #${seatNumber} is occupied by @${isOccupied.username}. Select an available desk.`, 'warning', 'Seat Unavailable');
+      handleInspectStudent(isOccupied);
       return;
     }
 
@@ -353,6 +384,7 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           currentUser={user}
           boardAnnouncement={boardMessage}
           onPendingNotice={showPendingApprovalNotice}
+          onInspectUser={handleInspectStudent}
         />
       </div>
 
@@ -361,6 +393,15 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           user={user as any}
           onClose={() => setShowProfileModal(false)}
           onUpdateUser={(updated) => setUser(updated)}
+        />
+      )}
+
+      {/* Inspect Classmate Profile Modal (Read-only) */}
+      {inspectClassmate && (
+        <ProfileModal
+          user={inspectClassmate}
+          onClose={() => setInspectClassmate(null)}
+          isReadOnly={!user || inspectClassmate.username.toLowerCase() !== user.username.toLowerCase()}
         />
       )}
 
