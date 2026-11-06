@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     avatar_url TEXT,
     seat_number INT CHECK (seat_number BETWEEN 1 AND 46),
     content TEXT NOT NULL,
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
     reactions JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -231,6 +232,7 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
 -- Ensure reactions column exists if table was already created
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON public.chat_messages (created_at DESC);
 
@@ -287,9 +289,32 @@ CREATE TABLE IF NOT EXISTS public.chat_groups (
     owner_username VARCHAR(50) NOT NULL,
     is_private BOOLEAN NOT NULL DEFAULT FALSE,
     member_count INT NOT NULL DEFAULT 1 CHECK (member_count >= 1),
+    is_notes_room BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+ALTER TABLE public.chat_groups ADD COLUMN IF NOT EXISTS is_notes_room BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Fixed public room for shared MCA lecture notes and study material.
+INSERT INTO public.chat_groups (
+    id, name, description, emoji, owner_username, is_private, member_count, is_notes_room
+)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'MCA class notes',
+    'A shared space for lecture notes, PDFs, images, and study files.',
+    '📚',
+    'DevClass MCA',
+    FALSE,
+    1,
+    TRUE
+)
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    is_private = FALSE,
+    is_notes_room = TRUE;
 
 CREATE TABLE IF NOT EXISTS public.chat_group_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -308,6 +333,7 @@ CREATE TABLE IF NOT EXISTS public.group_chat_messages (
     username VARCHAR(50) NOT NULL,
     avatar_url TEXT,
     content TEXT NOT NULL,
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
     reactions JSONB DEFAULT '{}'::jsonb,
     is_edited BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -316,6 +342,8 @@ CREATE TABLE IF NOT EXISTS public.group_chat_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_groups_updated_at ON public.chat_groups (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_group_members_group_id ON public.chat_group_members (group_id);
 CREATE INDEX IF NOT EXISTS idx_group_chat_messages_group_created ON public.group_chat_messages (group_id, created_at ASC);
+
+ALTER TABLE public.group_chat_messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE public.chat_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_group_members ENABLE ROW LEVEL SECURITY;
@@ -350,6 +378,32 @@ CREATE POLICY "Allow public update group_chat_messages" ON public.group_chat_mes
 
 DROP POLICY IF EXISTS "Allow public delete group_chat_messages" ON public.group_chat_messages;
 CREATE POLICY "Allow public delete group_chat_messages" ON public.group_chat_messages FOR DELETE USING (true);
+
+-- 11. Shared Chat Attachments
+-- Supabase Storage keeps binary files outside Postgres while the message rows
+-- retain lightweight metadata and public URLs for every classmate to view.
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('chat-attachments', 'chat-attachments', TRUE, 26214400, NULL)
+ON CONFLICT (id) DO UPDATE SET
+    public = TRUE,
+    file_size_limit = 26214400,
+    allowed_mime_types = NULL;
+
+DROP POLICY IF EXISTS "Allow class chat attachment uploads" ON storage.objects;
+CREATE POLICY "Allow class chat attachment uploads"
+ON storage.objects FOR INSERT TO public
+WITH CHECK (bucket_id = 'chat-attachments');
+
+DROP POLICY IF EXISTS "Allow class chat attachment updates" ON storage.objects;
+CREATE POLICY "Allow class chat attachment updates"
+ON storage.objects FOR UPDATE TO public
+USING (bucket_id = 'chat-attachments')
+WITH CHECK (bucket_id = 'chat-attachments');
+
+DROP POLICY IF EXISTS "Allow class chat attachment deletes" ON storage.objects;
+CREATE POLICY "Allow class chat attachment deletes"
+ON storage.objects FOR DELETE TO public
+USING (bucket_id = 'chat-attachments');
 
 
 
