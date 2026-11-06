@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChatMessage,
+  ChatAttachment,
   ChatGroup,
+  MAX_CHAT_ATTACHMENTS,
+  MAX_CHAT_ATTACHMENT_BYTES,
   UserProfile,
   supabaseService,
   getMessageActionStatus,
@@ -28,6 +31,19 @@ const MESSAGE_REACTIONS = [
   { id: 'fire', emoji: '🔥', label: 'Fire' },
   { id: 'celebrate', emoji: '🎉', label: 'Celebrate' },
 ];
+
+type PendingChatAttachment = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
+const formatAttachmentSize = (bytes: number): string => {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+};
 
 export const GlobalChat: React.FC<GlobalChatProps> = ({
   isOpen,
@@ -57,10 +73,16 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const [newGroupPrivate, setNewGroupPrivate] = useState(false);
   const [groupFormError, setGroupFormError] = useState('');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingChatAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const pendingAttachmentsRef = useRef<PendingChatAttachment[]>(pendingAttachments);
+  pendingAttachmentsRef.current = pendingAttachments;
   const messagesRef = useRef<ChatMessage[]>(messages);
   messagesRef.current = messages;
   const groupMessagesRef = useRef<ChatMessage[]>(groupMessages);
@@ -91,8 +113,18 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const activeMessages = activeGroupId ? groupMessages : messages;
   const activeConversationTitle = activeGroup?.name || 'DevClass MCA';
   const activeConversationSubtitle = activeGroup
-    ? `${activeGroup.memberCount} ${activeGroup.memberCount === 1 ? 'member' : 'members'}`
+    ? activeGroup.isNotesRoom
+      ? 'Open to every classmate'
+      : `${activeGroup.memberCount} ${activeGroup.memberCount === 1 ? 'member' : 'members'}`
     : '46 Students';
+  const classNotesGroup = useMemo(
+    () => groups.find((group) => group.isNotesRoom) || null,
+    [groups]
+  );
+  const studentGroups = useMemo(
+    () => groups.filter((group) => !group.isNotesRoom),
+    [groups]
+  );
 
   // Classmates active in conversation for the Details inspector
   const uniqueClassmates = useMemo(() => {
@@ -276,16 +308,69 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [inputText]);
 
+  useEffect(() => () => {
+    pendingAttachmentsRef.current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+  }, []);
+
+  const clearPendingAttachments = () => {
+    setPendingAttachments((previous) => {
+      previous.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+      return [];
+    });
+  };
+
+  const handleAttachmentInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (selectedFiles.length === 0) return;
+
+    if (editingMessage) {
+      setAttachmentError('Attachments can be added to new messages, not while editing an existing message.');
+      return;
+    }
+
+    const availableSlots = Math.max(0, MAX_CHAT_ATTACHMENTS - pendingAttachments.length);
+    const acceptedFiles = selectedFiles.slice(0, availableSlots).filter((file) => file.size <= MAX_CHAT_ATTACHMENT_BYTES);
+    const rejectedCount = selectedFiles.length - acceptedFiles.length;
+
+    if (rejectedCount > 0) {
+      setAttachmentError(
+        selectedFiles.some((file) => file.size > MAX_CHAT_ATTACHMENT_BYTES)
+          ? 'Each attachment must be 25 MB or smaller.'
+          : `You can attach up to ${MAX_CHAT_ATTACHMENTS} files per message.`
+      );
+    } else {
+      setAttachmentError('');
+    }
+
+    const nextAttachments = acceptedFiles.map((file) => ({
+      id: `pending_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setPendingAttachments((previous) => [...previous, ...nextAttachments].slice(0, MAX_CHAT_ATTACHMENTS));
+  };
+
+  const handleRemovePendingAttachment = (attachmentId: string) => {
+    setPendingAttachments((previous) => {
+      const removed = previous.find((attachment) => attachment.id === attachmentId);
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return previous.filter((attachment) => attachment.id !== attachmentId);
+    });
+  };
+
   const handleSelectConversation = async (groupId: string | null) => {
     setActiveGroupId(groupId);
     setSearchQuery('');
     setShowInfoSheet(false);
     setActiveReactionMsgId(null);
+    setAttachmentError('');
+    clearPendingAttachments();
     handleCancelEdit();
 
     if (!groupId || !currentUsername) return;
     const group = groups.find((item) => item.id === groupId);
-    if (!group || group.isMember) return;
+    if (!group || group.isMember || group.isNotesRoom) return;
 
     const joined = await supabaseService.joinChatGroup(groupId, {
       userId: currentUser?.id,
@@ -339,6 +424,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
   const handleLeaveActiveGroup = async () => {
     if (!activeGroupId || !activeGroup || !currentUsername) return;
+    if (activeGroup.isNotesRoom) return;
     if (activeGroup.ownerUsername.toLowerCase() === currentUsername.toLowerCase()) {
       alert('The group owner cannot leave yet. Transfer ownership or delete the group from a future group settings panel.');
       return;
@@ -411,16 +497,22 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   };
 
   // Instant Optimistic Message Dispatch & Update (0ms UI latency with tactile spring animations)
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     const text = inputText.trim();
-    if (!text || !isApproved) return;
+    if ((!text && pendingAttachments.length === 0) || !isApproved || isUploadingAttachments) return;
 
     const username = currentUsername || 'student';
     const userId = currentUser?.id;
     const avatarUrl = currentUser?.avatarUrl;
+    const conversationGroupId = activeGroupId;
+    const queuedAttachments = pendingAttachments.map((attachment) => attachment.file);
 
     // Handle Edit Submission
     if (editingMessage) {
+      if (queuedAttachments.length > 0) {
+        setAttachmentError('Attachments can be added to new messages, not while editing an existing message.');
+        return;
+      }
       const targetId = editingMessage.id;
       const originalText = editingMessage.content;
       if (text === originalText) {
@@ -441,25 +533,46 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       // Optimistic inline update in 0ms
       const updateMessages = (previous: ChatMessage[]) =>
         previous.map((m) => (m.id === targetId ? { ...m, content: text, isEdited: true } : m));
-      if (activeGroupId) setGroupMessages(updateMessages);
+      if (conversationGroupId) setGroupMessages(updateMessages);
       else setMessages(updateMessages);
       handleCancelEdit();
 
       // Persist in background
-      const editRequest = activeGroupId
+      const editRequest = conversationGroupId
         ? supabaseService.editGroupChatMessage(targetId, text, currentUsername)
         : supabaseService.editChatMessage(targetId, text, currentUsername);
       editRequest.then((confirmed) => {
         if (confirmed) {
           const replaceMessage = (previous: ChatMessage[]) =>
             previous.map((m) => (m.id === targetId ? confirmed : m));
-          if (activeGroupId) setGroupMessages(replaceMessage);
+          if (conversationGroupId) setGroupMessages(replaceMessage);
           else setMessages(replaceMessage);
         }
       }).catch((err) => {
         console.warn('Failed to persist edit:', err);
       });
       return;
+    }
+
+    let uploadedAttachments: ChatAttachment[] = [];
+    if (queuedAttachments.length > 0) {
+      setIsUploadingAttachments(true);
+      setAttachmentError('');
+      try {
+        uploadedAttachments = await supabaseService.uploadChatAttachments(queuedAttachments, {
+          roomId: conversationGroupId || 'global',
+          username,
+        });
+      } catch (error) {
+        setAttachmentError(error instanceof Error ? error.message : 'The attachments could not be prepared.');
+        setIsUploadingAttachments(false);
+        return;
+      }
+      setIsUploadingAttachments(false);
+      if (uploadedAttachments.some((attachment) => attachment.isLocalOnly)) {
+        setAttachmentError('Shared storage is unavailable, so these files are visible only in this browser.');
+      }
+      clearPendingAttachments();
     }
 
     // Normal Send:
@@ -476,12 +589,13 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       avatarUrl,
       seatNumber: mySeat,
       content: text,
+      attachments: uploadedAttachments,
       reactions: {},
       createdAt: new Date().toISOString(),
     };
 
     // 3. Append to state instantly and clear input
-    if (activeGroupId) setGroupMessages((prev) => [...prev, optimisticMsg]);
+    if (conversationGroupId) setGroupMessages((prev) => [...prev, optimisticMsg]);
     else setMessages((prev) => [...prev, optimisticMsg]);
     setInputText('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -492,13 +606,14 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }, 20);
 
     // 5. Asynchronously persist to Supabase in background
-    const sendRequest = activeGroupId
+    const sendRequest = conversationGroupId
       ? supabaseService.sendGroupChatMessage({
-          groupId: activeGroupId,
+          groupId: conversationGroupId,
           userId,
           username,
           avatarUrl,
           content: text,
+          attachments: uploadedAttachments,
         })
       : supabaseService.sendChatMessage({
           userId,
@@ -506,13 +621,14 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
           avatarUrl,
           seatNumber: mySeat,
           content: text,
+          attachments: uploadedAttachments,
         });
     sendRequest.then((confirmed) => {
       if (confirmed) {
         // Swap temp ID with the real database record
         const replaceMessage = (previous: ChatMessage[]) =>
           previous.map((m) => (m.id === tempId ? confirmed : m));
-        if (activeGroupId) setGroupMessages(replaceMessage);
+        if (conversationGroupId) setGroupMessages(replaceMessage);
         else setMessages(replaceMessage);
       }
     }).catch((err) => {
@@ -569,6 +685,16 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   };
 
+  const formatMessageStamp = (dateStr: string): string => {
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '';
+      return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${formatMessageTime(dateStr)}`;
+    } catch {
+      return '';
+    }
+  };
+
   const formatMessageHeaderDate = (dateStr: string): string => {
     try {
       const date = new Date(dateStr);
@@ -592,9 +718,16 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     ? activeMessages.filter(
         (m) =>
           m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.username.toLowerCase().includes(searchQuery.toLowerCase())
+          m.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (m.attachments || []).some((attachment) => attachment.name.toLowerCase().includes(searchQuery.toLowerCase()))
       )
     : activeMessages;
+
+  const getMessagePreview = (message: ChatMessage): string => {
+    if (message.content.trim()) return message.content;
+    const count = message.attachments?.length || 0;
+    return count === 1 ? `📎 ${message.attachments?.[0]?.name || 'Attachment'}` : `📎 ${count} attachments`;
+  };
 
   const latestMessagePreview = messages.length > 0 ? messages[messages.length - 1] : null;
 
@@ -673,11 +806,37 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               </div>
               <p className="thread-preview-text">
                 {latestMessagePreview
-                  ? `${latestMessagePreview.username === currentUsername ? 'You: ' : `@${latestMessagePreview.username}: `}${latestMessagePreview.content}`
+                  ? `${latestMessagePreview.username === currentUsername ? 'You: ' : `@${latestMessagePreview.username}: `}${getMessagePreview(latestMessagePreview)}`
                   : 'Auditorium Hall S01'}
               </p>
             </div>
           </div>
+
+          {classNotesGroup && (
+            <>
+              <div className="sidebar-section-heading notes-section-heading">
+                <span>CLASS NOTES</span>
+                <span className="notes-public-pill">PUBLIC</span>
+              </div>
+              <div
+                className={`sidebar-thread-cell group-thread notes-thread ${activeGroupId === classNotesGroup.id ? 'active' : ''}`}
+                onClick={() => handleSelectConversation(classNotesGroup.id)}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="thread-avatar-icon group-avatar-icon notes-avatar-icon">
+                  <span>{classNotesGroup.emoji}</span>
+                </div>
+                <div className="thread-cell-info">
+                  <div className="thread-top-line">
+                    <span className="thread-name">{classNotesGroup.name}</span>
+                    <span className="thread-member-mark">↗</span>
+                  </div>
+                  <p className="thread-preview-text">{classNotesGroup.description}</p>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="sidebar-section-heading">
             <span>GROUP CHATS</span>
@@ -696,13 +855,13 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             </button>
           </div>
 
-          {groups.length === 0 ? (
+          {studentGroups.length === 0 ? (
             <div className="sidebar-empty-groups">
               <span className="sidebar-empty-icon">✦</span>
               <span>Create a study circle, project room, or hangout.</span>
             </div>
           ) : (
-            groups.map((group) => (
+            studentGroups.map((group) => (
               <div
                 key={group.id}
                 className={`sidebar-thread-cell group-thread ${activeGroupId === group.id ? 'active' : ''}`}
@@ -875,7 +1034,9 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               </div>
               <h2 className="welcome-headline">{activeConversationTitle}</h2>
               <p className="welcome-subline">
-                {activeGroup
+                {activeGroup?.isNotesRoom
+                  ? 'Share lecture notes, PDFs, images, and useful class files with everyone.'
+                  : activeGroup
                   ? 'No messages yet. Say hello and make this group your own space.'
                   : 'No messages yet. Send a message to your classmates to start the conversation.'}
               </p>
@@ -892,10 +1053,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                 // Date stamp insertion
                 const showDateHeader =
                   idx === 0 ||
-                  Math.abs(
-                    new Date(msg.createdAt).getTime() -
-                      new Date(filteredMessages[idx - 1].createdAt).getTime()
-                  ) > 1000 * 60 * 30;
+                  new Date(msg.createdAt).toDateString() !== new Date(filteredMessages[idx - 1].createdAt).toDateString();
 
                 const isReactionPickerOpen = activeReactionMsgId === msg.id;
 
@@ -931,38 +1089,43 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                       )}
 
                       <div className={`chat-bubble-wrapper ${isMine ? 'outgoing' : 'incoming'}`}>
-                        {/* Sender metadata for incoming */}
-                        {!isMine && (
-                          <div className="chat-sender-line">
-                            <span 
-                              className="sender-username"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenUserProfile(msg.username, msg.avatarUrl, msg.userId);
+                        {/* Sender name and sent time are shown for every message, including files. */}
+                        <div className={`chat-sender-line ${isMine ? 'outgoing' : ''}`}>
+                          <span
+                            className="sender-username"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenUserProfile(msg.username, msg.avatarUrl, msg.userId);
+                            }}
+                            title={`Click to view @${msg.username}'s profile`}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            @{msg.username}
+                          </span>
+                          {msg.seatNumber && (
+                            <button
+                              type="button"
+                              className="sender-seat-chip"
+                              onClick={() => {
+                                if (onSelectSeat && msg.seatNumber) {
+                                  onSelectSeat(msg.seatNumber);
+                                  onClose();
+                                }
                               }}
-                              title={`Click to view @${msg.username}'s profile`}
-                              role="button"
-                              tabIndex={0}
+                              title={`View Seat #${msg.seatNumber}`}
                             >
-                              @{msg.username}
-                            </span>
-                            {msg.seatNumber && (
-                              <button
-                                type="button"
-                                className="sender-seat-chip"
-                                onClick={() => {
-                                  if (onSelectSeat && msg.seatNumber) {
-                                    onSelectSeat(msg.seatNumber);
-                                    onClose();
-                                  }
-                                }}
-                                title={`View Seat #${msg.seatNumber}`}
-                              >
-                                Seat {msg.seatNumber < 10 ? `0${msg.seatNumber}` : msg.seatNumber}
-                              </button>
-                            )}
-                          </div>
-                        )}
+                              Seat {msg.seatNumber < 10 ? `0${msg.seatNumber}` : msg.seatNumber}
+                            </button>
+                          )}
+                          <time
+                            className="message-sent-time"
+                            dateTime={msg.createdAt}
+                            title={new Date(msg.createdAt).toLocaleString()}
+                          >
+                            {formatMessageStamp(msg.createdAt)}
+                          </time>
+                        </div>
 
                         {/* Interactive Message Bubble */}
                         <div
@@ -975,10 +1138,58 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                           onTouchEnd={handleTouchEndMessage}
                           onTouchMove={handleTouchEndMessage}
                         >
-                          <p className="bubble-text-content">
-                            {msg.content}
-                            {msg.isEdited && <span className="bubble-edited-badge" title="Edited message"> (edited)</span>}
-                          </p>
+                          {msg.attachments && msg.attachments.length > 0 && (
+                            <div className="bubble-attachments" aria-label={`${msg.attachments.length} attachment${msg.attachments.length === 1 ? '' : 's'}`}>
+                              {msg.attachments.map((attachment) => (
+                                attachment.kind === 'image' ? (
+                                  <a
+                                    key={attachment.id}
+                                    className="chat-image-attachment"
+                                    href={attachment.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    download={attachment.name}
+                                    title={`Open ${attachment.name}`}
+                                  >
+                                    <img src={attachment.url} alt={attachment.name} loading="lazy" />
+                                    <span className="attachment-image-caption">
+                                      <span>{attachment.name}</span>
+                                      <small>{formatAttachmentSize(attachment.size)}</small>
+                                    </span>
+                                  </a>
+                                ) : (
+                                  <a
+                                    key={attachment.id}
+                                    className="chat-file-attachment"
+                                    href={attachment.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    download={attachment.name}
+                                    title={`Open ${attachment.name}`}
+                                  >
+                                    <span className={`file-type-icon ${attachment.kind}`}>
+                                      {attachment.kind === 'pdf' ? 'PDF' : 'FILE'}
+                                    </span>
+                                    <span className="file-attachment-copy">
+                                      <strong>{attachment.name}</strong>
+                                      <small>{attachment.kind === 'pdf' ? 'PDF document' : 'Downloadable file'} · {formatAttachmentSize(attachment.size)}</small>
+                                    </span>
+                                    <span className="file-download-icon" aria-hidden="true">↓</span>
+                                  </a>
+                                )
+                              ))}
+                              {msg.attachments.some((attachment) => attachment.isLocalOnly) && (
+                                <span className="local-only-attachment-note">Only available in this browser</span>
+                              )}
+                            </div>
+                          )}
+
+                          {(msg.content || msg.isEdited) && (
+                            <p className="bubble-text-content">
+                              {msg.content}
+                              {msg.isEdited && <span className="bubble-edited-badge" title="Edited message"> (edited)</span>}
+                            </p>
+                          )}
 
                           {/* Reaction Action Trigger */}
                           <button
@@ -1135,6 +1346,52 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             Message Input Dock
             ---------------------------------------------------------------------- */}
         <footer className="chat-composer-dock">
+          <input
+            ref={attachmentInputRef}
+            className="chat-hidden-file-input"
+            type="file"
+            multiple
+            accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.mp4,.mov"
+            onChange={handleAttachmentInputChange}
+            aria-label="Choose images, PDFs, or files to attach"
+          />
+
+          {pendingAttachments.length > 0 && (
+            <div className="pending-attachments-strip" aria-label="Attachments ready to send">
+              {pendingAttachments.map((attachment) => (
+                <div className="pending-attachment-chip" key={attachment.id}>
+                  {attachment.file.type.startsWith('image/') ? (
+                    <img src={attachment.previewUrl} alt="" />
+                  ) : (
+                    <span className="pending-file-icon">{attachment.file.type === 'application/pdf' ? 'PDF' : 'FILE'}</span>
+                  )}
+                  <span className="pending-attachment-copy">
+                    <strong>{attachment.file.name}</strong>
+                    <small>{formatAttachmentSize(attachment.file.size)}</small>
+                  </span>
+                  <button
+                    type="button"
+                    className="pending-attachment-remove"
+                    onClick={() => handleRemovePendingAttachment(attachment.id)}
+                    aria-label={`Remove ${attachment.file.name}`}
+                    title="Remove attachment"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(isUploadingAttachments || attachmentError) && (
+            <div className={`attachment-status-banner ${attachmentError ? 'warning' : ''}`}>
+              <span>{isUploadingAttachments ? 'Preparing attachments…' : attachmentError}</span>
+              {!isUploadingAttachments && attachmentError && (
+                <button type="button" onClick={() => setAttachmentError('')} aria-label="Dismiss attachment notice">×</button>
+              )}
+            </div>
+          )}
+
           {/* Active Edit Message Banner */}
           {editingMessage && (
             <div className="composer-edit-banner">
@@ -1174,16 +1431,12 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <button
                 type="button"
                 className="composer-add-btn"
-                title="Create a group chat"
-                aria-label="Create a group chat"
-                onClick={() => {
-                  setGroupFormError('');
-                  setShowCreateGroup(true);
-                }}
+                title="Attach images, PDFs, or files"
+                aria-label="Attach images, PDFs, or files"
+                onClick={() => attachmentInputRef.current?.click()}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
               </button>
 
@@ -1191,7 +1444,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <textarea
                 ref={textareaRef}
                 className="composer-text-input"
-                placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
+                placeholder={editingMessage ? "Edit your message..." : activeGroup?.isNotesRoom ? "Share notes, files, or a message..." : "Type a message..."}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onFocus={() => {
@@ -1207,11 +1460,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               {/* Send Button with Tactile Spring Animation */}
               <button
                 type="button"
-                className={`composer-send-btn ${inputText.trim() ? 'active' : ''} ${isDispatchingAnim ? 'dispatching' : ''}`}
+                className={`composer-send-btn ${(inputText.trim() || pendingAttachments.length > 0) ? 'active' : ''} ${isDispatchingAnim ? 'dispatching' : ''}`}
                 onClick={handleSendMessage}
-                disabled={!inputText.trim()}
-                title={editingMessage ? "Save edit" : "Send"}
-                aria-label={editingMessage ? "Save edit" : "Send"}
+                disabled={(!inputText.trim() && pendingAttachments.length === 0) || isUploadingAttachments}
+                title={editingMessage ? "Save edit" : "Send message"}
+                aria-label={editingMessage ? "Save edit" : "Send message"}
               >
                 {editingMessage ? (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -1266,11 +1519,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                 </div>
                 <div className="data-row-card">
                   <span className="data-row-name">Members</span>
-                  <span className="data-row-val">{activeGroup.memberCount}</span>
+                  <span className="data-row-val">{activeGroup.isNotesRoom ? 'Everyone' : activeGroup.memberCount}</span>
                 </div>
                 <div className="data-row-card">
                   <span className="data-row-name">Access</span>
-                  <span className="data-row-val">{activeGroup.isPrivate ? 'Private' : 'Open'}</span>
+                  <span className="data-row-val">{activeGroup.isNotesRoom ? 'Public' : activeGroup.isPrivate ? 'Private' : 'Open'}</span>
                 </div>
               </div>
             )}
@@ -1335,7 +1588,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                   Focus My Desk in 3D Hall
                 </button>
               )}
-              {activeGroup && activeGroup.ownerUsername.toLowerCase() !== currentUsername.toLowerCase() && (
+              {activeGroup && !activeGroup.isNotesRoom && activeGroup.ownerUsername.toLowerCase() !== currentUsername.toLowerCase() && (
                 <button
                   type="button"
                   className="info-action-btn danger"

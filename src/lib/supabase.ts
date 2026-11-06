@@ -16,6 +16,19 @@ export interface UserProfile {
   isApproved?: boolean; // Account approval flag: true once admin verifies entry
 }
 
+export type ChatAttachmentKind = 'image' | 'pdf' | 'file';
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: ChatAttachmentKind;
+  url: string;
+  storagePath?: string;
+  isLocalOnly?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   userId?: string;
@@ -24,6 +37,7 @@ export interface ChatMessage {
   avatar?: string;
   seatNumber?: number | null;
   content: string;
+  attachments?: ChatAttachment[];
   reactions?: Record<string, string[]>;
   createdAt: string;
   isEdited?: boolean;
@@ -41,7 +55,14 @@ export interface ChatGroup {
   isMember?: boolean;
   createdAt: string;
   updatedAt?: string;
+  isNotesRoom?: boolean;
 }
+
+export const CHAT_ATTACHMENT_BUCKET = 'chat-attachments';
+export const MAX_CHAT_ATTACHMENTS = 6;
+export const MAX_CHAT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+export const MAX_LOCAL_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+export const MCA_CLASS_NOTES_GROUP_ID = '00000000-0000-0000-0000-000000000001';
 
 // 15 to 30 minutes time frame limit for editing and deleting own messages
 export const EDIT_DELETE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
@@ -142,6 +163,68 @@ const setLocalGroupMembers = (members: LocalChatGroupMember[]): void => writeLoc
 const getLocalGroupMessages = (): ChatMessage[] => readLocalJson<ChatMessage[]>(CHAT_GROUP_MESSAGES_KEY, []);
 const setLocalGroupMessages = (messages: ChatMessage[]): void => writeLocalJson(CHAT_GROUP_MESSAGES_KEY, messages);
 
+const getAttachmentKind = (mimeType: string, fileName = ''): ChatAttachmentKind => {
+  const normalizedMime = String(mimeType || '').toLowerCase();
+  const normalizedName = fileName.toLowerCase();
+  if (normalizedMime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|heic|avif)$/.test(normalizedName)) {
+    return 'image';
+  }
+  if (normalizedMime === 'application/pdf' || normalizedName.endsWith('.pdf')) {
+    return 'pdf';
+  }
+  return 'file';
+};
+
+const parseChatAttachments = (value: unknown): ChatAttachment[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && typeof item.url === 'string' && typeof item.name === 'string')
+    .map((item: any) => ({
+      id: String(item.id || `attachment_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
+      name: String(item.name).slice(0, 180),
+      mimeType: String(item.mimeType || item.mime_type || 'application/octet-stream'),
+      size: Number(item.size || 0),
+      kind: (item.kind === 'image' || item.kind === 'pdf' ? item.kind : getAttachmentKind(item.mimeType, item.name)),
+      url: String(item.url),
+      storagePath: item.storagePath || item.storage_path || undefined,
+      isLocalOnly: Boolean(item.isLocalOnly || item.is_local_only),
+    }));
+};
+
+const mapChatMessageRow = (row: any): ChatMessage => {
+  const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
+  const isEdited = Boolean(rawReactions._edited || row.is_edited);
+  delete rawReactions._edited;
+  delete rawReactions._deleted;
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    username: row.username,
+    avatarUrl: row.avatar_url,
+    seatNumber: row.seat_number,
+    content: row.content || '',
+    attachments: parseChatAttachments(row.attachments),
+    reactions: rawReactions,
+    createdAt: row.created_at,
+    isEdited,
+  };
+};
+
+const makeClassNotesGroup = (): ChatGroup => ({
+  id: MCA_CLASS_NOTES_GROUP_ID,
+  name: 'MCA class notes',
+  description: 'A shared space for lecture notes, PDFs, images, and study files.',
+  emoji: '\uD83D\uDCDA',
+  ownerUsername: 'DevClass MCA',
+  isPrivate: false,
+  memberCount: 1,
+  isMember: true,
+  isNotesRoom: true,
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date().toISOString(),
+});
+
 const mapChatGroupRow = (row: any, isMember = false): ChatGroup => ({
   id: row.id,
   name: row.name,
@@ -152,6 +235,7 @@ const mapChatGroupRow = (row: any, isMember = false): ChatGroup => ({
   isPrivate: Boolean(row.is_private),
   memberCount: Number(row.member_count || 1),
   isMember,
+  isNotesRoom: Boolean(row.is_notes_room) || row.id === MCA_CLASS_NOTES_GROUP_ID,
   createdAt: row.created_at || new Date().toISOString(),
   updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
 });
@@ -167,7 +251,8 @@ const mapGroupMessageRow = (row: any): ChatMessage => {
     userId: row.user_id,
     username: row.username,
     avatarUrl: row.avatar_url,
-    content: row.content,
+    content: row.content || '',
+    attachments: parseChatAttachments(row.attachments),
     reactions: rawReactions,
     createdAt: row.created_at,
     isEdited,
@@ -198,6 +283,22 @@ export const recordDatabaseAccess = (): void => {
   try {
     localStorage.setItem(DB_LAST_ACCESSED_KEY, Date.now().toString());
   } catch {}
+};
+
+const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(reader.error || new Error('Unable to read this file.'));
+  reader.readAsDataURL(file);
+});
+
+const sanitizeStorageSegment = (value: string, fallback: string): string => {
+  const safe = value
+    .normalize('NFKD')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return safe || fallback;
 };
 
 // In-memory LRU / Set cache for instant FAANG-style lookups
@@ -912,14 +1013,95 @@ export const supabaseService = {
     localStorage.removeItem(SESSION_KEY);
   },
 
+  /**
+   * Uploads chat attachments to the shared public Storage bucket when Supabase
+   * is available. If the bucket is unavailable, small files are kept as data
+   * URLs so the chat still works in a single browser without a server.
+   */
+  async uploadChatAttachments(
+    files: File[],
+    params: { roomId: string; username: string }
+  ): Promise<ChatAttachment[]> {
+    const cleanUsername = params.username.replace(/^@/, '').trim();
+    const cleanRoomId = sanitizeStorageSegment(params.roomId, 'global');
+    const attachments: ChatAttachment[] = [];
+
+    for (const file of files.slice(0, MAX_CHAT_ATTACHMENTS)) {
+      if (file.size > MAX_CHAT_ATTACHMENT_BYTES) {
+        throw new Error(`${file.name} is larger than 25 MB. Please choose a smaller file.`);
+      }
+
+      const mimeType = file.type || 'application/octet-stream';
+      const kind = getAttachmentKind(mimeType, file.name);
+      const attachmentId = `attachment_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const cleanName = sanitizeStorageSegment(file.name, 'attachment');
+      const storagePath = `${cleanRoomId}/${sanitizeStorageSegment(cleanUsername, 'student')}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}_${cleanName}`;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const uploadRes = await fetch(
+            `${SUPABASE_URL}/storage/v1/object/${CHAT_ATTACHMENT_BUCKET}/${storagePath}`,
+            {
+              method: 'POST',
+              headers: {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                'Content-Type': mimeType,
+                'x-upsert': 'false',
+                'cache-control': '3600',
+              },
+              body: file,
+            }
+          );
+
+          if (uploadRes.ok) {
+            attachments.push({
+              id: attachmentId,
+              name: file.name,
+              mimeType,
+              size: file.size,
+              kind,
+              storagePath,
+              url: `${SUPABASE_URL}/storage/v1/object/public/${CHAT_ATTACHMENT_BUCKET}/${storagePath}`,
+            });
+            continue;
+          }
+
+          console.warn('Chat attachment upload warning:', await uploadRes.text());
+        } catch (err) {
+          console.warn('Chat attachment upload failed:', err);
+        }
+      }
+
+      if (file.size > MAX_LOCAL_ATTACHMENT_BYTES) {
+        throw new Error(
+          `${file.name} could not be uploaded to shared storage. Files above 2 MB need the Supabase chat-attachments bucket.`
+        );
+      }
+
+      const localUrl = await readFileAsDataUrl(file);
+      attachments.push({
+        id: attachmentId,
+        name: file.name,
+        mimeType,
+        size: file.size,
+        kind,
+        url: localUrl,
+        isLocalOnly: true,
+      });
+    }
+
+    return attachments;
+  },
+
   async getChatMessages(limit: number = 60): Promise<ChatMessage[]> {
     if (!isSupabaseConfigured()) {
       return getCachedChatMessages();
     }
 
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&order=created_at.asc&limit=${limit}`,
+      let res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,attachments,reactions,created_at&order=created_at.asc&limit=${limit}`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -927,6 +1109,19 @@ export const supabaseService = {
           },
         }
       );
+
+      // Keep text chat compatible until the attachment column is applied in Supabase.
+      if (!res.ok) {
+        res = await fetch(
+          `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&order=created_at.asc&limit=${limit}`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -939,24 +1134,7 @@ export const supabaseService = {
             }
             return !tombstones.has(row.id);
           })
-          .map((row: any) => {
-            const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
-            const isEdited = Boolean(rawReactions._edited || row.is_edited);
-            delete rawReactions._edited;
-            delete rawReactions._deleted;
-
-            return {
-              id: row.id,
-              userId: row.user_id,
-              username: row.username,
-              avatarUrl: row.avatar_url,
-              seatNumber: row.seat_number,
-              content: row.content,
-              reactions: rawReactions,
-              createdAt: row.created_at,
-              isEdited,
-            };
-          });
+          .map(mapChatMessageRow);
 
         // Save fresh history to user-side cache
         setCachedChatMessages(parsed);
@@ -994,8 +1172,8 @@ export const supabaseService = {
       const newestTimestamp = newestTime ? new Date(newestTime).getTime() : Date.now();
       const windowStart = new Date(Math.min(Date.now(), newestTimestamp) - (30 * 60 * 1000)).toISOString();
 
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&created_at=gte.${encodeURIComponent(windowStart)}&order=created_at.asc`,
+      let res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,attachments,reactions,created_at&created_at=gte.${encodeURIComponent(windowStart)}&order=created_at.asc`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -1003,6 +1181,18 @@ export const supabaseService = {
           },
         }
       );
+
+      if (!res.ok) {
+        res = await fetch(
+          `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&created_at=gte.${encodeURIComponent(windowStart)}&order=created_at.asc`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -1018,24 +1208,7 @@ export const supabaseService = {
 
         const activeDelta: ChatMessage[] = (data || [])
           .filter((row: any) => !row.reactions?._deleted && !tombstones.has(row.id))
-          .map((row: any) => {
-            const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
-            const isEdited = Boolean(rawReactions._edited || row.is_edited);
-            delete rawReactions._edited;
-            delete rawReactions._deleted;
-
-            return {
-              id: row.id,
-              userId: row.user_id,
-              username: row.username,
-              avatarUrl: row.avatar_url,
-              seatNumber: row.seat_number,
-              content: row.content,
-              reactions: rawReactions,
-              createdAt: row.created_at,
-              isEdited,
-            };
-          });
+          .map(mapChatMessageRow);
 
         // Keep immutable messages created before windowStart
         const windowStartTime = new Date(windowStart).getTime();
@@ -1063,14 +1236,20 @@ export const supabaseService = {
     avatarUrl?: string;
     seatNumber?: number | null;
     content: string;
+    attachments?: ChatAttachment[];
   }): Promise<ChatMessage | null> {
+    const cleanContent = params.content.trim().slice(0, 1000);
+    const cleanAttachments = (params.attachments || []).slice(0, MAX_CHAT_ATTACHMENTS);
+    if (!cleanContent && cleanAttachments.length === 0) return null;
+
     const newMessage: ChatMessage = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
       userId: params.userId,
       username: params.username,
       avatarUrl: params.avatarUrl,
       seatNumber: params.seatNumber,
-      content: params.content.trim(),
+      content: cleanContent,
+      attachments: cleanAttachments,
       reactions: {},
       createdAt: new Date().toISOString(),
     };
@@ -1088,11 +1267,12 @@ export const supabaseService = {
     try {
       const payload: Record<string, any> = {
         username: params.username,
-        content: params.content.trim(),
+        content: cleanContent,
         avatar_url: params.avatarUrl || null,
         seat_number: params.seatNumber || null,
         reactions: {},
       };
+      if (cleanAttachments.length > 0) payload.attachments = cleanAttachments;
       if (params.userId && params.userId.length === 36) {
         payload.user_id = params.userId;
       }
@@ -1117,7 +1297,8 @@ export const supabaseService = {
             username: createdRows[0].username,
             avatarUrl: createdRows[0].avatar_url,
             seatNumber: createdRows[0].seat_number,
-            content: createdRows[0].content,
+            content: createdRows[0].content || '',
+            attachments: parseChatAttachments(createdRows[0].attachments),
             reactions: createdRows[0].reactions || {},
             createdAt: createdRows[0].created_at,
           };
@@ -1443,12 +1624,92 @@ export const supabaseService = {
     }
   },
 
+  async ensureClassNotesRoom(): Promise<ChatGroup> {
+    const fallback = makeClassNotesGroup();
+    if (!isSupabaseConfigured()) return fallback;
+
+    try {
+      let existingRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_groups?id=eq.${MCA_CLASS_NOTES_GROUP_ID}&select=id,name,description,emoji,owner_id,owner_username,is_private,member_count,is_notes_room,created_at,updated_at&limit=1`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (!existingRes.ok) {
+        existingRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/chat_groups?id=eq.${MCA_CLASS_NOTES_GROUP_ID}&select=id,name,description,emoji,owner_id,owner_username,is_private,member_count,created_at,updated_at&limit=1`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+      }
+      if (existingRes.ok) {
+        const rows = await existingRes.json();
+        if (rows?.[0]) return mapChatGroupRow(rows[0], true);
+      }
+
+      let createRes = await fetch(`${SUPABASE_URL}/rest/v1/chat_groups`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({
+          id: MCA_CLASS_NOTES_GROUP_ID,
+          name: fallback.name,
+          description: fallback.description,
+          emoji: fallback.emoji,
+          owner_username: fallback.ownerUsername,
+          is_private: false,
+          member_count: 1,
+          is_notes_room: true,
+        }),
+      });
+      if (!createRes.ok) {
+        createRes = await fetch(`${SUPABASE_URL}/rest/v1/chat_groups`, {
+          method: 'POST',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({
+            id: MCA_CLASS_NOTES_GROUP_ID,
+            name: fallback.name,
+            description: fallback.description,
+            emoji: fallback.emoji,
+            owner_username: fallback.ownerUsername,
+            is_private: false,
+            member_count: 1,
+          }),
+        });
+      }
+      if (createRes.ok) {
+        const rows = await createRes.json();
+        if (rows?.[0]) return mapChatGroupRow(rows[0], true);
+      }
+    } catch (err) {
+      console.warn('Class notes room setup warning:', err);
+    }
+
+    return fallback;
+  },
+
   async getChatGroups(viewer?: { id?: string; username?: string }): Promise<ChatGroup[]> {
     const cleanUsername = viewer?.username?.replace(/^@/, '').trim() || '';
 
     if (!isSupabaseConfigured()) {
       const members = getLocalGroupMembers();
-      return getLocalChatGroups()
+      return [makeClassNotesGroup(), ...getLocalChatGroups().filter((group) => group.id !== MCA_CLASS_NOTES_GROUP_ID)]
         .map((group) => {
           const isMember = Boolean(cleanUsername && members.some(
             (member) => member.groupId === group.id && member.username.toLowerCase() === cleanUsername.toLowerCase()
@@ -1464,8 +1725,8 @@ export const supabaseService = {
     }
 
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/chat_groups?select=id,name,description,emoji,owner_id,owner_username,is_private,member_count,created_at,updated_at&order=updated_at.desc`,
+      let res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_groups?select=id,name,description,emoji,owner_id,owner_username,is_private,member_count,is_notes_room,created_at,updated_at&order=updated_at.desc`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -1473,6 +1734,18 @@ export const supabaseService = {
           },
         }
       );
+
+      if (!res.ok) {
+        res = await fetch(
+          `${SUPABASE_URL}/rest/v1/chat_groups?select=id,name,description,emoji,owner_id,owner_username,is_private,member_count,created_at,updated_at&order=updated_at.desc`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+      }
 
       if (res.ok) {
         const rows = await res.json();
@@ -1494,18 +1767,21 @@ export const supabaseService = {
           }
         }
 
-        return (rows || [])
+        const mappedGroups: ChatGroup[] = (rows || [])
           .map((row: any) => mapChatGroupRow(
             row,
             memberGroupIds.has(row.id) || row.owner_username?.toLowerCase() === cleanUsername.toLowerCase()
           ))
           .filter((group: ChatGroup) => !group.isPrivate || group.isMember || group.ownerUsername.toLowerCase() === cleanUsername.toLowerCase());
+        const notesRoom = mappedGroups.find((group) => group.isNotesRoom) || await this.ensureClassNotesRoom();
+        return [notesRoom, ...mappedGroups.filter((group) => group.id !== notesRoom.id)]
+          .sort((a, b) => (a.isNotesRoom ? -1 : b.isNotesRoom ? 1 : new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()));
       }
     } catch (err) {
       console.warn('Chat groups fetch warning:', err);
     }
 
-    return getLocalChatGroups();
+    return [makeClassNotesGroup(), ...getLocalChatGroups().filter((group: ChatGroup) => group.id !== MCA_CLASS_NOTES_GROUP_ID)];
   },
 
   async createChatGroup(params: {
@@ -1682,8 +1958,8 @@ export const supabaseService = {
     }
 
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/group_chat_messages?select=id,user_id,username,avatar_url,content,reactions,is_edited,created_at&group_id=eq.${encodeURIComponent(groupId)}&order=created_at.asc&limit=${limit}`,
+      let res = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?select=id,user_id,username,avatar_url,content,attachments,reactions,is_edited,created_at&group_id=eq.${encodeURIComponent(groupId)}&order=created_at.asc&limit=${limit}`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -1691,6 +1967,17 @@ export const supabaseService = {
           },
         }
       );
+      if (!res.ok) {
+        res = await fetch(
+          `${SUPABASE_URL}/rest/v1/group_chat_messages?select=id,user_id,username,avatar_url,content,reactions,is_edited,created_at&group_id=eq.${encodeURIComponent(groupId)}&order=created_at.asc&limit=${limit}`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+      }
       if (res.ok) {
         const rows = await res.json();
         return (rows || [])
@@ -1714,10 +2001,12 @@ export const supabaseService = {
     username: string;
     avatarUrl?: string;
     content: string;
+    attachments?: ChatAttachment[];
   }): Promise<ChatMessage | null> {
     const cleanContent = params.content.trim().slice(0, 1000);
     const cleanUsername = params.username.replace(/^@/, '').trim();
-    if (!params.groupId || !cleanContent || !cleanUsername) return null;
+    const cleanAttachments = (params.attachments || []).slice(0, MAX_CHAT_ATTACHMENTS);
+    if (!params.groupId || (!cleanContent && cleanAttachments.length === 0) || !cleanUsername) return null;
 
     const newMessage: ChatMessage & { groupId: string } = {
       id: `group_msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1726,6 +2015,7 @@ export const supabaseService = {
       username: cleanUsername,
       avatarUrl: params.avatarUrl,
       content: cleanContent,
+      attachments: cleanAttachments,
       reactions: {},
       createdAt: new Date().toISOString(),
     };
@@ -1743,6 +2033,7 @@ export const supabaseService = {
         content: cleanContent,
         reactions: {},
       };
+      if (cleanAttachments.length > 0) payload.attachments = cleanAttachments;
       if (params.userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.userId)) {
         payload.user_id = params.userId;
       }
