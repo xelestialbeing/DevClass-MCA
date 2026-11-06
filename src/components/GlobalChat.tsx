@@ -52,6 +52,23 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
   messagesRef.current = messages;
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleTouchStartMessage = (msgId: string) => {
+    longPressTimerRef.current = setTimeout(() => {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(28); // Tactile Android haptic feedback
+      }
+      setActiveReactionMsgId(msgId);
+    }, 450);
+  };
+
+  const handleTouchEndMessage = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
 
   const currentUsername = currentUser?.username ? currentUser.username.replace(/^@/, '').trim() : '';
 
@@ -720,6 +737,9 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                             e.preventDefault();
                             setActiveReactionMsgId(msg.id);
                           }}
+                          onTouchStart={() => handleTouchStartMessage(msg.id)}
+                          onTouchEnd={handleTouchEndMessage}
+                          onTouchMove={handleTouchEndMessage}
                         >
                           <p className="bubble-text-content">
                             {msg.content}
@@ -936,6 +956,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                 placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
+                onFocus={() => {
+                  setTimeout(() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }, 260);
+                }}
                 onKeyDown={handleKeyDownTextarea}
                 rows={1}
                 maxLength={1000}

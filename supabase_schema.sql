@@ -66,13 +66,14 @@ CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK 
 );
 
 DROP POLICY IF EXISTS "Allow public update users" ON public.users;
--- Allow user profile updates (catchphrase/avatar) but PREVENT escalating face_scan_status to verified
+DROP POLICY IF EXISTS "Allow users update own profile fields" ON public.users;
+-- Allow user profile updates (catchphrase/avatar) but STRICTLY PREVENT tampering with status, username or phone
 CREATE POLICY "Allow users update own profile fields" ON public.users FOR UPDATE USING (true)
 WITH CHECK (
-    -- Prevents client-side tampering with face_scan_status
-    face_scan_status = 'pending' OR face_scan_status IS NOT DISTINCT FROM (
-        SELECT u.face_scan_status FROM public.users u WHERE u.id = users.id
-    )
+    -- Prevents client-side tampering with face_scan_status, username, or phone_number
+    face_scan_status IS NOT DISTINCT FROM (SELECT u.face_scan_status FROM public.users u WHERE u.id = users.id)
+    AND username IS NOT DISTINCT FROM (SELECT u.username FROM public.users u WHERE u.id = users.id)
+    AND phone_number IS NOT DISTINCT FROM (SELECT u.phone_number FROM public.users u WHERE u.id = users.id)
 );
 
 -- 4.2 DAILY POLLS & VOTES (Hardened)
@@ -123,24 +124,57 @@ CREATE TABLE IF NOT EXISTS public.phone_verifications (
 
 ALTER TABLE public.phone_verifications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public all phone_verifications" ON public.phone_verifications;
+DROP POLICY IF EXISTS "Allow public update phone_verifications" ON public.phone_verifications;
 
 -- Public can query session by code (needed for polling verification status)
 CREATE POLICY "Allow public read phone_verifications by code" ON public.phone_verifications
 FOR SELECT USING (true);
 
--- Creation and update of verification sessions (used by registration modal & Telegram bot worker)
+-- Creation of verification sessions: clients can ONLY insert unverified codes
 CREATE POLICY "Allow public insert phone_verifications" ON public.phone_verifications
-FOR INSERT WITH CHECK (true);
+FOR INSERT WITH CHECK (verified = false);
 
-CREATE POLICY "Allow public update phone_verifications" ON public.phone_verifications
-FOR UPDATE USING (true) WITH CHECK (true);
+-- SECURE WORKER PROCEDURE: Only backend worker with admin secret can verify phone sessions
+CREATE OR REPLACE FUNCTION public.verify_phone_code(
+    p_code TEXT,
+    p_phone TEXT,
+    p_pin TEXT,
+    p_tg_user_id BIGINT,
+    p_tg_username TEXT DEFAULT NULL,
+    p_admin_secret TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF p_admin_secret IS DISTINCT FROM 'DEVCLASS_MCA_ADMIN_SECURE_TOKEN_2026' THEN
+        RAISE EXCEPTION 'Unauthorized verification worker call';
+    END IF;
 
--- 7. SECURE ADMIN APPROVAL PROCEDURE (Bypasses RLS safely via SECURITY DEFINER)
+    INSERT INTO public.phone_verifications (
+        code, phone_number, pin, telegram_user_id, telegram_username, verified
+    ) VALUES (
+        p_code, p_phone, p_pin, p_tg_user_id, p_tg_username, true
+    )
+    ON CONFLICT (code) DO UPDATE SET
+        phone_number = EXCLUDED.phone_number,
+        pin = EXCLUDED.pin,
+        telegram_user_id = EXCLUDED.telegram_user_id,
+        telegram_username = EXCLUDED.telegram_username,
+        verified = true;
+
+    RETURN jsonb_build_object('success', true);
+END;
+$$;
+
+-- 7. SECURE ADMIN APPROVAL PROCEDURE (Bypasses RLS safely via SECURITY DEFINER with admin token)
 -- Allows the Telegram Bot / Admin to safely approve students without exposing unrestricted table updates
 CREATE OR REPLACE FUNCTION public.set_student_approval(
     p_username TEXT,
     p_status TEXT,
-    p_phone TEXT DEFAULT NULL
+    p_phone TEXT DEFAULT NULL,
+    p_admin_secret TEXT DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -149,6 +183,11 @@ AS $$
 DECLARE
     v_updated_count INT;
 BEGIN
+    -- Guard: Enforce admin authorization token
+    IF p_admin_secret IS DISTINCT FROM 'DEVCLASS_MCA_ADMIN_SECURE_TOKEN_2026' THEN
+        RAISE EXCEPTION 'Unauthorized admin approval call';
+    END IF;
+
     UPDATE public.users
     SET 
         face_scan_status = p_status,
@@ -204,8 +243,9 @@ DROP POLICY IF EXISTS "Allow verified students insert chat_messages" ON public.c
 CREATE POLICY "Allow verified students insert chat_messages" ON public.chat_messages FOR INSERT WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.users u
-        WHERE u.id = user_id AND u.face_scan_status = 'verified'
-    ) OR user_id IS NULL
+        WHERE (u.id = user_id OR LOWER(u.username) = LOWER(chat_messages.username))
+        AND u.face_scan_status = 'verified'
+    )
 );
 
 DROP POLICY IF EXISTS "Allow public update chat_reactions" ON public.chat_messages;
@@ -213,6 +253,28 @@ CREATE POLICY "Allow public update chat_reactions" ON public.chat_messages FOR U
 
 DROP POLICY IF EXISTS "Allow public delete chat_messages" ON public.chat_messages;
 CREATE POLICY "Allow public delete chat_messages" ON public.chat_messages FOR DELETE USING (true);
+
+-- Trigger to protect chat message edit integrity
+CREATE OR REPLACE FUNCTION public.protect_chat_message_edits()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.username <> OLD.username OR (OLD.user_id IS NOT NULL AND NEW.user_id <> OLD.user_id) THEN
+        RAISE EXCEPTION 'Author identity cannot be altered';
+    END IF;
+
+    IF NEW.content <> OLD.content AND OLD.created_at < (NOW() - INTERVAL '30 minutes') THEN
+        RAISE EXCEPTION 'Message edit window expired (30m limit)';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_protect_chat_message_edits ON public.chat_messages;
+CREATE TRIGGER trg_protect_chat_message_edits
+    BEFORE UPDATE ON public.chat_messages
+    FOR EACH ROW
+    EXECUTE FUNCTION public.protect_chat_message_edits();
 
 
 

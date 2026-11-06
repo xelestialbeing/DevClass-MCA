@@ -1580,28 +1580,108 @@
 }
 
 /* ==============================================================================
-   6. RESPONSIVE: MOBILE & TABLET
+   6. RESPONSIVE: MOBILE & TABLET (OPTIMIZED FOR ANDROID & TOUCH)
    ============================================================================== */
 @media (max-width: 767px) {
   .chat-split-sidebar {
     display: none;
   }
 
+  .chat-main-navbar {
+    padding-top: max(0px, env(safe-area-inset-top, 0px));
+    padding-left: 12px;
+    padding-right: 12px;
+    height: calc(56px + env(safe-area-inset-top, 0px));
+  }
+
   .chat-mobile-back-action {
     display: inline-flex;
+    padding: 8px 6px;
+    font-size: 0.88rem;
+    min-height: 42px;
   }
 
   .chat-bubble-wrapper {
-    max-width: 82%;
+    max-width: 86%;
   }
 
   .chat-message-feed {
-    padding: 12px 14px 18px;
+    padding: 10px 12px 14px;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  /* 16px font-size prevents Android / iOS auto-zooming into textarea */
+  .composer-text-input {
+    font-size: 16px !important;
+    padding: 8px 10px;
+    line-height: 1.4;
+  }
+
+  /* Safe padding for Android navigation bar / gesture navigation handle */
+  .chat-composer-dock {
+    padding: 8px 12px max(12px, env(safe-area-inset-bottom, 12px));
+  }
+
+  .composer-pill-card {
+    padding: 4px 6px 4px 10px;
+    border-radius: 22px;
+  }
+
+  .composer-send-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
   }
 
   .bubble-reaction-trigger {
     display: flex;
-    opacity: 0.5;
+    opacity: 0.65;
+    padding: 6px;
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Clamped floating reaction & manage bar so it never clips on 360px-412px Android screens */
+  .floating-reaction-bar {
+    max-width: calc(100vw - 28px);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 5px 8px;
+    border-radius: 20px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7);
+  }
+
+  .floating-reaction-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chat-bubble.outgoing .floating-reaction-bar {
+    right: 0;
+    left: auto;
+  }
+
+  .chat-bubble.incoming .floating-reaction-bar {
+    left: 0;
+    right: auto;
+  }
+
+  .reaction-item-btn {
+    padding: 4px 5px;
+    min-width: 32px;
+    min-height: 32px;
+  }
+
+  .reaction-glyph-icon {
+    font-size: 1.15rem;
+  }
+
+  .manage-item-btn {
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    min-height: 32px;
   }
 
   .chat-info-sheet {
@@ -1609,6 +1689,12 @@
     inset: 0;
     width: 100vw;
     z-index: 100;
+  }
+
+  .chat-delete-modal {
+    max-width: 92vw;
+    padding: 20px 16px;
+    border-radius: 18px;
   }
 }
 

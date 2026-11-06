@@ -27,6 +27,7 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || en
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY;
 const ADMIN_CHAT_ID = (process.env.TELEGRAM_ADMIN_CHAT_ID || env.TELEGRAM_ADMIN_CHAT_ID || env.VITE_TELEGRAM_ADMIN_CHAT_ID || '').trim();
+const ADMIN_SECRET = process.env.ADMIN_SECRET || env.ADMIN_SECRET || 'DEVCLASS_MCA_ADMIN_SECURE_TOKEN_2026';
 
 const isSmokeTest = process.argv.includes('--test') || process.argv.includes('--dry-run');
 
@@ -90,6 +91,30 @@ async function updateSupabaseVerification(code, phoneNumber, pin, from) {
   }
 
   try {
+    // 1. Try secure RPC function with admin secret
+    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verify_phone_code`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_code: code,
+        p_phone: phoneNumber,
+        p_pin: pin,
+        p_tg_user_id: from.id,
+        p_tg_username: from.username || null,
+        p_admin_secret: ADMIN_SECRET,
+      }),
+    });
+
+    if (rpcRes.ok) {
+      console.log(`✅ Supabase RPC verified: Code [${code}] -> Phone [${phoneNumber}]`);
+      return;
+    }
+
+    // 2. Direct REST fallback
     const res = await fetch(`${SUPABASE_URL}/rest/v1/phone_verifications`, {
       method: 'POST',
       headers: {
@@ -138,7 +163,7 @@ async function setStudentApproval(username, status, phoneNumber = null) {
   const query = filterParts.length > 0 ? `?or=(${filterParts.join(',')})` : '';
 
   try {
-    // 1. Try secure RPC function (bypasses RLS safely via SECURITY DEFINER)
+    // 1. Try secure RPC function (bypasses RLS safely via SECURITY DEFINER with admin secret)
     const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_student_approval`, {
       method: 'POST',
       headers: {
@@ -150,6 +175,7 @@ async function setStudentApproval(username, status, phoneNumber = null) {
         p_username: clean,
         p_status: status,
         p_phone: phoneNumber ? phoneNumber.trim() : null,
+        p_admin_secret: ADMIN_SECRET,
       }),
     });
 
@@ -529,6 +555,32 @@ async function pollUpdates() {
 
           // 2. Handle 1-Tap Contact Sharing
           else if (msg.contact) {
+            // Anti-Spoofing: Ensure the shared contact actually belongs to the user, not a forwarded/selected card
+            if (msg.contact.user_id && String(msg.contact.user_id) !== String(msg.from.id)) {
+              console.warn(`🚨 Security: Spoofed contact rejected from ${senderName} (Sender ID: ${msg.from.id}, Contact Owner ID: ${msg.contact.user_id})`);
+              await callTelegram('sendMessage', {
+                chat_id: chatId,
+                text:
+                  `⛔ *VERIFICATION REJECTED:*\n\n` +
+                  `You shared a contact card from your address book instead of your own number.\n\n` +
+                  `Please tap the "*📱 Share My Verified Mobile Number*" button below to verify your own Telegram account number.`,
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  keyboard: [
+                    [
+                      {
+                        text: '📱 Share My Verified Mobile Number',
+                        request_contact: true,
+                      },
+                    ],
+                  ],
+                  resize_keyboard: true,
+                  one_time_keyboard: true,
+                },
+              });
+              continue;
+            }
+
             let phone = msg.contact.phone_number;
             if (!phone.startsWith('+')) {
               phone = '+' + phone;
@@ -588,4 +640,6 @@ async function pollUpdates() {
   }
 }
 
-pollUpdates();
+if (!isSmokeTest) {
+  pollUpdates();
+}

@@ -270,8 +270,11 @@ export const supabaseService = {
     }
 
     try {
+      const selectFields = saveToSession
+        ? '*'
+        : 'id,username,catchphrase,avatar_url,face_scan_status';
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/users?username=ilike.${encodeURIComponent(clean)}&select=*`,
+        `${SUPABASE_URL}/rest/v1/users?username=ilike.${encodeURIComponent(clean)}&select=${selectFields}`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -288,12 +291,12 @@ export const supabaseService = {
           const userProfile: UserProfile = {
             id: r.id,
             username: r.username,
-            phoneNumber: r.phone_number,
+            phoneNumber: saveToSession ? r.phone_number : undefined,
             catchphrase: r.catchphrase || '',
             avatar: r.username.charAt(0).toUpperCase(),
             avatarUrl: r.avatar_url || undefined,
-            email: r.email,
-            faceScanUrl: r.face_scan_url,
+            email: saveToSession ? r.email : undefined,
+            faceScanUrl: saveToSession ? r.face_scan_url : undefined,
             faceScanStatus: r.face_scan_status,
             isApproved,
           };
