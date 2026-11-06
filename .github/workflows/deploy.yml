@@ -36,23 +36,38 @@ jobs:
         run: npm ci
 
       # ------------------------------------------------------------------------
+      # VERIFY LIVE SUPABASE DATABASE (FAIL IF USING LOCAL FALLBACK / MOCK)
+      # Tests against real Supabase tables. Fails if offline or unconfigured.
+      # ------------------------------------------------------------------------
+      - name: 4. Verify Live Supabase Connection (Not Local Mock)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: node verify_supabase.cjs
+
+      # ------------------------------------------------------------------------
       # "RUNNING WITHOUT ANY ERROR = TEST PASSES"
       # In modern web apps, compiling TypeScript and bundling Vite acts as the
       # ultimate smoke test: it catches syntax errors, broken imports, missing
       # variables, shader errors, and invalid types without writing test suites.
       # ------------------------------------------------------------------------
-      - name: 4. Test Frontend Build (tsc type-check + vite build)
+      - name: 5. Test Frontend Build (tsc type-check + vite build)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_TELEGRAM_BOT_USERNAME: ${{ secrets.VITE_TELEGRAM_BOT_USERNAME }}
         run: npm run build
 
-      - name: 5. Test Backend Worker Syntax (node syntax check)
+      - name: 6. Test Backend Worker Syntax (node syntax check)
         run: node -c telegram_bot.cjs
 
       # ------------------------------------------------------------------------
       # AUTOMATIC ROLLBACK TRIGGER (IF TESTS FAIL)
-      # This step ONLY runs if Step 4 or Step 5 fails (`if: failure()`).
+      # This step ONLY runs if Step 4, 5, or 6 fails (`if: failure()`).
       # It alerts you and shows the exact previous working commit.
       # ------------------------------------------------------------------------
-      - name: 6. Handle Test Failure & Rollback Notice
+      - name: 7. Handle Test Failure & Rollback Notice
         if: failure()
         run: |
           echo "::error::❌ Build/Test verification failed on commit ${{ github.sha }}!"
