@@ -94,7 +94,8 @@ jobs:
           script: |
             cd /var/www/DevClass-MCA
             
-            # 1. Pull verified passing code from main
+            # 1. Discard local build artifacts and pull verified passing code from main
+            git reset --hard HEAD
             git pull origin main
             
             # 2. Recompile frontend with production environment variables
