@@ -3,6 +3,7 @@ import { ProfileModal } from './ProfileModal';
 import { Classroom3D, StudentVote } from './Classroom3D';
 import { UserProfile, supabaseService, TELEGRAM_BOT_USERNAME } from '../lib/supabase';
 import { SpatialModal, SpatialToast, SpatialModalProps } from './SpatialModal';
+import { GlobalChat } from './GlobalChat';
 import './Classroom.css';
 
 interface Vote extends StudentVote {}
@@ -34,10 +35,40 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     return null;
   });
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(() => window.location.hash === '#chat');
   const [boardMessage] = useState("DEVCLASS MCA - WELCOME");
   const [modalConfig, setModalConfig] = useState<SpatialModalProps | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isVerifyingStatus, setIsVerifyingStatus] = useState(false);
+
+  // Synchronize URL hash with dedicated Chat page
+  useEffect(() => {
+    const handleHash = () => {
+      setIsChatOpen(window.location.hash === '#chat');
+    };
+
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
+  const handleOpenChat = () => {
+    if (!isApproved) {
+      showPendingApprovalNotice();
+      return;
+    }
+    setIsChatOpen(true);
+    if (window.location.hash !== '#chat') {
+      window.history.pushState(null, '', '#chat');
+    }
+  };
+
+  const handleCloseChat = () => {
+    setIsChatOpen(false);
+    if (window.location.hash === '#chat') {
+      window.history.pushState(null, '', window.location.pathname + window.location.search);
+    }
+  };
+
 
   const addToast = (message: string, type: 'info' | 'warning' | 'success' | 'error' = 'info', title?: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -277,16 +308,16 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
 
           <button 
             type="button" 
-            className="hud-icon-action" 
+            className={`hud-icon-action ${isChatOpen ? 'active' : ''}`}
             onClick={() => {
-              if (!isApproved) {
-                showPendingApprovalNotice();
-                return;
+              if (isChatOpen) {
+                handleCloseChat();
+              } else {
+                handleOpenChat();
               }
-              addToast('Connecting to DevClass MCA frequency...', 'info', 'Chat Channel');
             }}
-            title="Open Campus Chat"
-            aria-label="Open Chat"
+            title={isChatOpen ? "Close Class Chat" : "Open Class Chat"}
+            aria-label="Class Chat"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -340,6 +371,18 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
           onClose={() => setModalConfig(null)}
         />
       )}
+
+      {/* Full-Screen Class Chat Page */}
+      <GlobalChat
+        isOpen={isChatOpen}
+        onClose={handleCloseChat}
+        currentUser={user}
+        mySeat={mySeat}
+        isApproved={isApproved}
+        onSelectSeat={(seatNum) => {
+          handleSeatClick(seatNum);
+        }}
+      />
 
       {/* Spatial Floating Toasts */}
       {toasts.length > 0 && (

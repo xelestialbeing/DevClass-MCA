@@ -16,6 +16,18 @@ export interface UserProfile {
   isApproved?: boolean; // Account approval flag: true once admin verifies entry
 }
 
+export interface ChatMessage {
+  id: string;
+  userId?: string;
+  username: string;
+  avatarUrl?: string;
+  avatar?: string;
+  seatNumber?: number | null;
+  content: string;
+  reactions?: Record<string, string[]>;
+  createdAt: string;
+}
+
 const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ({} as Record<string, string | undefined>);
 const SUPABASE_URL = env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || '';
@@ -35,12 +47,63 @@ export const isSupabaseConfigured = (): boolean => {
 };
 
 const SESSION_KEY = 'college_presence_user';
+const DB_LAST_ACCESSED_KEY = 'college_db_last_accessed_at';
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000; // 5 days in milliseconds
+
+export const recordDatabaseAccess = (): void => {
+  try {
+    localStorage.setItem(DB_LAST_ACCESSED_KEY, Date.now().toString());
+  } catch {}
+};
 
 // In-memory LRU / Set cache for instant FAANG-style lookups
 const usernameCache = new Map<string, boolean>();
 
 export const supabaseService = {
   isConfigured: isSupabaseConfigured,
+
+  /**
+   * Smart Keep-Alive: Checks when the database was last accessed.
+   * If < 5 days ago, skips execution completely (0 requests).
+   * If >= 5 days ago (or never recorded), sends a single lightweight ping
+   * to touch the Supabase API Gateway and prevent the 7-day auto-suspension.
+   */
+  async checkAndTouchDatabaseIfStale(): Promise<boolean> {
+    if (!isSupabaseConfigured()) return false;
+
+    try {
+      const lastAccessStr = localStorage.getItem(DB_LAST_ACCESSED_KEY);
+      const now = Date.now();
+
+      if (lastAccessStr) {
+        const lastAccessTime = parseInt(lastAccessStr, 10);
+        const elapsed = now - lastAccessTime;
+        if (!isNaN(lastAccessTime) && elapsed < FIVE_DAYS_MS) {
+          const daysAgo = (elapsed / (1000 * 60 * 60 * 24)).toFixed(1);
+          console.log(`⚡ [Supabase KeepAlive] Database was active ${daysAgo}d ago (< 5 days). Skipping database query.`);
+          return false;
+        }
+      }
+
+      console.log('📡 [Supabase KeepAlive] Last access was > 5 days ago. Touching database to reset 7-day pause timer...');
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/daily_polls?select=id&limit=1`, {
+        method: 'GET',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
+
+      if (res.ok) {
+        recordDatabaseAccess();
+        console.log('✅ [Supabase KeepAlive] Database touched successfully. Inactivity pause prevented.');
+        return true;
+      }
+    } catch (err) {
+      console.warn('⚠ [Supabase KeepAlive] Notice:', err);
+    }
+    return false;
+  },
 
   // Retrieve current cached session
   getCurrentUser(): UserProfile | null {
@@ -124,8 +187,8 @@ export const supabaseService = {
     ];
   },
 
-  // Fetch full student profile by username for direct terminal login
-  async getUserByUsername(username: string): Promise<UserProfile | null> {
+  // Fetch full student profile by username for direct terminal login or public profile inspection
+  async getUserByUsername(username: string, saveToSession = true): Promise<UserProfile | null> {
     const clean = username.trim().toLowerCase();
     if (!clean) return null;
 
@@ -168,7 +231,9 @@ export const supabaseService = {
             faceScanStatus: r.face_scan_status,
             isApproved,
           };
-          localStorage.setItem(SESSION_KEY, JSON.stringify(userProfile));
+          if (saveToSession) {
+            localStorage.setItem(SESSION_KEY, JSON.stringify(userProfile));
+          }
           return userProfile;
         }
       }
@@ -751,4 +816,226 @@ export const supabaseService = {
   signOut(): void {
     localStorage.removeItem(SESSION_KEY);
   },
+
+  async getChatMessages(limit: number = 60): Promise<ChatMessage[]> {
+    if (!isSupabaseConfigured()) {
+      try {
+        const stored = localStorage.getItem('college_chat_messages');
+        if (stored) {
+          return JSON.parse(stored);
+        }
+      } catch {}
+      return [];
+    }
+
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&order=created_at.asc&limit=${limit}`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        return (data || []).map((row: any) => ({
+          id: row.id,
+          userId: row.user_id,
+          username: row.username,
+          avatarUrl: row.avatar_url,
+          seatNumber: row.seat_number,
+          content: row.content,
+          reactions: row.reactions || {},
+          createdAt: row.created_at,
+        }));
+      }
+    } catch (err) {
+      console.warn('Chat messages fetch warning:', err);
+    }
+
+    try {
+      const stored = localStorage.getItem('college_chat_messages');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [];
+  },
+
+  async sendChatMessage(params: {
+    userId?: string;
+    username: string;
+    avatarUrl?: string;
+    seatNumber?: number | null;
+    content: string;
+  }): Promise<ChatMessage | null> {
+    const newMessage: ChatMessage = {
+      id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      userId: params.userId,
+      username: params.username,
+      avatarUrl: params.avatarUrl,
+      seatNumber: params.seatNumber,
+      content: params.content.trim(),
+      reactions: {},
+      createdAt: new Date().toISOString(),
+    };
+
+    if (!isSupabaseConfigured()) {
+      try {
+        const stored = localStorage.getItem('college_chat_messages');
+        const list: ChatMessage[] = stored ? JSON.parse(stored) : [];
+        list.push(newMessage);
+        localStorage.setItem('college_chat_messages', JSON.stringify(list.slice(-100)));
+      } catch {}
+      return newMessage;
+    }
+
+    try {
+      const payload: Record<string, any> = {
+        username: params.username,
+        content: params.content.trim(),
+        avatar_url: params.avatarUrl || null,
+        seat_number: params.seatNumber || null,
+        reactions: {},
+      };
+      if (params.userId && params.userId.length === 36) {
+        payload.user_id = params.userId;
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/chat_messages`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const createdRows = await res.json();
+        if (createdRows && createdRows[0]) {
+          return {
+            id: createdRows[0].id,
+            userId: createdRows[0].user_id,
+            username: createdRows[0].username,
+            avatarUrl: createdRows[0].avatar_url,
+            seatNumber: createdRows[0].seat_number,
+            content: createdRows[0].content,
+            reactions: createdRows[0].reactions || {},
+            createdAt: createdRows[0].created_at,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Send chat message warning:', err);
+    }
+
+    try {
+      const stored = localStorage.getItem('college_chat_messages');
+      const list: ChatMessage[] = stored ? JSON.parse(stored) : [];
+      list.push(newMessage);
+      localStorage.setItem('college_chat_messages', JSON.stringify(list.slice(-100)));
+    } catch {}
+    return newMessage;
+  },
+
+  async toggleChatMessageReaction(
+    messageId: string,
+    emoji: string,
+    username: string
+  ): Promise<ChatMessage | null> {
+    const cleanUser = username.replace(/^@/, '').trim();
+    if (!cleanUser || !emoji) return null;
+
+    if (!isSupabaseConfigured()) {
+      try {
+        const stored = localStorage.getItem('college_chat_messages');
+        const list: ChatMessage[] = stored ? JSON.parse(stored) : [];
+        const msg = list.find((m) => m.id === messageId);
+        if (msg) {
+          if (!msg.reactions) msg.reactions = {};
+          const currentUsers = msg.reactions[emoji] || [];
+          if (currentUsers.includes(cleanUser)) {
+            msg.reactions[emoji] = currentUsers.filter((u) => u !== cleanUser);
+            if (msg.reactions[emoji].length === 0) {
+              delete msg.reactions[emoji];
+            }
+          } else {
+            msg.reactions[emoji] = [...currentUsers, cleanUser];
+          }
+          localStorage.setItem('college_chat_messages', JSON.stringify(list));
+          return { ...msg };
+        }
+      } catch (err) {
+        console.warn('Local reaction toggle error:', err);
+      }
+      return null;
+    }
+
+    try {
+      // 1. Fetch current message reactions
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,reactions`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      if (!res.ok) return null;
+      const rows = await res.json();
+      if (!rows || rows.length === 0) return null;
+
+      const currentReactions: Record<string, string[]> = rows[0].reactions || {};
+      const usersForEmoji = currentReactions[emoji] || [];
+      if (usersForEmoji.includes(cleanUser)) {
+        currentReactions[emoji] = usersForEmoji.filter((u) => u !== cleanUser);
+        if (currentReactions[emoji].length === 0) {
+          delete currentReactions[emoji];
+        }
+      } else {
+        currentReactions[emoji] = [...usersForEmoji, cleanUser];
+      }
+
+      // 2. Patch updated reactions
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({ reactions: currentReactions }),
+        }
+      );
+
+      if (patchRes.ok) {
+        const updatedRows = await patchRes.json();
+        if (updatedRows && updatedRows[0]) {
+          return {
+            id: updatedRows[0].id,
+            userId: updatedRows[0].user_id,
+            username: updatedRows[0].username,
+            avatarUrl: updatedRows[0].avatar_url,
+            seatNumber: updatedRows[0].seat_number,
+            content: updatedRows[0].content,
+            reactions: updatedRows[0].reactions || {},
+            createdAt: updatedRows[0].created_at,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase toggle reaction error:', err);
+    }
+    return null;
+  },
 };
+

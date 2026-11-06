@@ -29,6 +29,11 @@ export function App() {
     avatar?: string;
   } | null>(null);
 
+  // Smart Database Keep-Alive: on website visit, verify if database was touched in past 5 days
+  useEffect(() => {
+    supabaseService.checkAndTouchDatabaseIfStale();
+  }, []);
+
   // Check if returning from Google OAuth redirect on page load
   useEffect(() => {
     const isOAuthRedirect = window.location.hash.includes('access_token') || window.location.search.includes('code=');
@@ -177,9 +182,13 @@ export function App() {
     setPendingGoogleAccount(null);
   };
 
-  // If in Classroom, show classroom view directly
+  // If in Classroom, show classroom view directly with cinematic transition
   if (inClassroom) {
-    return <Classroom currentUser={currentUser} onSignOut={handleSignOut} />;
+    return (
+      <div className="classroom-view-transition">
+        <Classroom currentUser={currentUser} onSignOut={handleSignOut} />
+      </div>
+    );
   }
 
   return (

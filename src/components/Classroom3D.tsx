@@ -57,10 +57,10 @@ const getSeatRowColor = (seatNum: number): number => {
 const ROOM_BOUNDS = {
   minX: -8.1, // Left inner wall is at -8.55
   maxX: 6.7,  // Right inner wall is at 7.25
-  minY: 0.9,  // Floor is at 0
-  maxY: 5.4,  // Ceiling is at 6.2
+  minY: 0.8,  // Floor is at 0
+  maxY: 5.6,  // Ceiling is at 6.2
   minZ: -8.6, // Front inner wall is at -9.2
-  maxZ: 4.1,  // Back inner wall is at 4.55
+  maxZ: 4.38, // Back inner wall is at 4.55
 };
 
 export const Classroom3D: React.FC<Classroom3DProps> = ({
@@ -108,8 +108,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     // CAMERA & MOBILE DETECTION
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || width < 768;
     const isMobilePortrait = width < 768 && height > width;
-    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 56 : 46, width / height, 0.25, 50);
-    camera.position.set(-0.65, 5.2, 3.8);
+    const camera = new THREE.PerspectiveCamera(isMobilePortrait ? 66 : 58, width / height, 0.2, 50);
+    camera.position.set(-0.65, 3.85, 4.3);
     cameraRef.current = camera;
 
     // RENDERER (Optimized for mobile GPUs - capped DPR, efficient shadows, no shader stalls)
@@ -128,15 +128,15 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // CONTROLS (Pivots right around center of student seating area)
+    // CONTROLS (Pivots right around geometric center of student seating area)
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.maxPolarAngle = Math.PI / 2 - 0.06; // Never dip under the floor
-    controls.minPolarAngle = 0.35;              // Never flip through the ceiling
+    controls.maxPolarAngle = Math.PI / 2 - 0.04; // Never dip under the floor
+    controls.minPolarAngle = 0.25;              // Never flip through the ceiling
     controls.minDistance = 0.8;                 // Prevent clipping inside chair geometry
-    controls.maxDistance = 10.0;                // Never zoom out past classroom walls
-    controls.target.set(-0.65, 0.7, -2.4);
+    controls.maxDistance = 14.0;                // Allow zooming out to view full classroom overview comfortably
+    controls.target.set(-0.65, 0.85, -1.8);
     controlsRef.current = controls;
 
     // -------------------------------------------------------------
@@ -569,94 +569,95 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
     // -------------------------------------------------------------
     // TEACHER'S PODIUM / LECTERN (Detailed Walnut, Emblem, Mic, Tablet)
+    // Ergonomically calibrated to standard 1.08m lectern height so sightline to chairs is 100% unobstructed
     // -------------------------------------------------------------
     const podiumGroup = new THREE.Group();
     const woodDarkMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.45, metalness: 0.05 });
     const woodTrimMat = new THREE.MeshStandardMaterial({ color: 0x271711, roughness: 0.5, metalness: 0.1 });
 
     // Main Lectern Column Body
-    const podiumBody = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 0.8), woodDarkMat);
-    podiumBody.position.set(0, 0.9, 0);
+    const podiumBody = new THREE.Mesh(new THREE.BoxGeometry(1.05, 1.08, 0.7), woodDarkMat);
+    podiumBody.position.set(0, 0.54, 0);
     podiumBody.castShadow = true;
     podiumGroup.add(podiumBody);
 
     // Recessed Architectural Front Trim Panel
-    const podiumFrontPanel = new THREE.Mesh(new THREE.BoxGeometry(0.96, 1.35, 0.04), woodTrimMat);
-    podiumFrontPanel.position.set(0, 0.9, 0.41);
+    const podiumFrontPanel = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.85, 0.04), woodTrimMat);
+    podiumFrontPanel.position.set(0, 0.54, 0.36);
     podiumGroup.add(podiumFrontPanel);
 
     // University Collegiate Crest / Medallion (Polished Gold/Bronze)
     const crestMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.85, roughness: 0.25 });
-    const crest = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.03, 32), crestMat);
+    const crest = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.03, 32), crestMat);
     crest.rotation.x = Math.PI / 2;
-    crest.position.set(0, 1.05, 0.43);
+    crest.position.set(0, 0.65, 0.38);
     podiumGroup.add(crest);
 
     // Lectern Slanted Reading Top with Raised Lower Lip
-    const podiumTop = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 0.95), woodDarkMat);
-    podiumTop.position.set(0, 1.82, -0.04);
-    podiumTop.rotation.x = 0.2;
+    const podiumTop = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.05, 0.8), woodDarkMat);
+    podiumTop.position.set(0, 1.10, -0.02);
+    podiumTop.rotation.x = 0.16;
     podiumTop.castShadow = true;
     podiumGroup.add(podiumTop);
 
-    const podiumLip = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.03, 0.04), woodTrimMat);
-    podiumLip.position.set(0, 1.74, 0.4);
-    podiumLip.rotation.x = 0.2;
+    const podiumLip = new THREE.Mesh(new THREE.BoxGeometry(1.10, 0.03, 0.04), woodTrimMat);
+    podiumLip.position.set(0, 1.04, 0.35);
+    podiumLip.rotation.x = 0.16;
     podiumGroup.add(podiumLip);
 
     // Professor's Open Tablet / Lecture Notes (Screen Glows Subtly)
     const tabletMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.2, metalness: 0.85 });
-    const tabletBody = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.016, 0.3), tabletMat);
-    tabletBody.position.set(-0.16, 1.86, -0.06);
-    tabletBody.rotation.x = 0.2;
+    const tabletBody = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.016, 0.26), tabletMat);
+    tabletBody.position.set(-0.14, 1.12, -0.04);
+    tabletBody.rotation.x = 0.16;
     podiumGroup.add(tabletBody);
 
     const tabletScreen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.38, 0.26),
+      new THREE.PlaneGeometry(0.34, 0.23),
       new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
     );
-    tabletScreen.rotation.x = -Math.PI / 2 + 0.2;
-    tabletScreen.position.set(-0.16, 1.875, -0.06);
+    tabletScreen.rotation.x = -Math.PI / 2 + 0.16;
+    tabletScreen.position.set(-0.14, 1.13, -0.04);
     podiumGroup.add(tabletScreen);
 
     // Professional Flexible Gooseneck Microphone with Studio Live Indicator Ring
     const micMat = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.9, roughness: 0.2 });
-    const micBase = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 16), micMat);
-    micBase.position.set(0.3, 1.84, 0.1);
-    micBase.rotation.x = 0.2;
+    const micBase = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 16), micMat);
+    micBase.position.set(0.32, 1.11, 0.08);
+    micBase.rotation.x = 0.16;
     podiumGroup.add(micBase);
 
-    const micLower = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 12), micMat);
-    micLower.position.set(0.3, 1.95, 0.04);
-    micLower.rotation.x = -0.3;
+    const micLower = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.18, 12), micMat);
+    micLower.position.set(0.32, 1.20, 0.03);
+    micLower.rotation.x = -0.25;
     podiumGroup.add(micLower);
 
-    const micUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.18, 12), micMat);
-    micUpper.position.set(0.3, 2.08, -0.04);
-    micUpper.rotation.x = 0.35;
+    const micUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.15, 12), micMat);
+    micUpper.position.set(0.32, 1.30, -0.02);
+    micUpper.rotation.x = 0.30;
     podiumGroup.add(micUpper);
 
     // Studio Active Microphone Capsule with Red Live Indicator Ring
-    const micCapsule = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.016, 0.07, 16), micMat);
-    micCapsule.position.set(0.3, 2.15, -0.09);
-    micCapsule.rotation.x = 0.35;
+    const micCapsule = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.014, 0.06, 16), micMat);
+    micCapsule.position.set(0.32, 1.35, -0.06);
+    micCapsule.rotation.x = 0.30;
     podiumGroup.add(micCapsule);
 
     const micLiveRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.018, 0.003, 8, 24),
+      new THREE.TorusGeometry(0.016, 0.003, 8, 24),
       new THREE.MeshBasicMaterial({ color: 0xef4444 })
     );
-    micLiveRing.position.set(0.3, 2.12, -0.08);
-    micLiveRing.rotation.x = 0.35;
+    micLiveRing.position.set(0.32, 1.33, -0.05);
+    micLiveRing.rotation.x = 0.30;
     podiumGroup.add(micLiveRing);
 
     // Lecturer's Stainless Steel Thermos Flask
     const flaskMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.92, roughness: 0.15 });
-    const flask = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.2, 16), flaskMat);
-    flask.position.set(0.44, 1.92, -0.02);
+    const flask = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.18, 16), flaskMat);
+    flask.position.set(0.42, 1.18, -0.02);
     podiumGroup.add(flask);
 
-    podiumGroup.position.set(-4.4, 0, -7.4);
+    podiumGroup.position.set(-4.4, 0, -7.2);
     scene.add(podiumGroup);
 
     // Note: The flickering black vent has been removed from front wall!
@@ -1344,7 +1345,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
     // Seat 46: Aisle desk in back row
     if (seatCounter <= 46) {
-      createDesk(46, rightCols[0], 2.4);
+      createDesk(46, rightCols[0], 2.05);
     }
 
     deskMeshesRef.current = deskMap;
@@ -1417,8 +1418,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
           if (activePreset === 'myseat' && deskMap.has(seatNo)) {
             const dg = deskMap.get(seatNo)!.group;
-            targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
-            targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+            targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.36, dg.position.z + 0.08);
+            targetLookAtRef.current = new THREE.Vector3(-0.65, 1.65, -9.1);
           }
         }
       }
@@ -1434,8 +1435,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
         if (activePreset === 'myseat' && deskMap.has(seatNo)) {
           const dg = deskMap.get(seatNo)!.group;
-          targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
-          targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+          targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.36, dg.position.z + 0.08);
+          targetLookAtRef.current = new THREE.Vector3(-0.65, 1.65, -9.1);
         }
       }
     };
@@ -1456,11 +1457,11 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
       camera.aspect = aspect;
       // If mobile portrait or narrow screen, scale FOV so all desks fit in frame:
       if (aspect < 1.0) {
-        camera.fov = Math.min(68, 48 * (1.15 / aspect));
+        camera.fov = Math.min(74, 58 * (1.15 / aspect));
       } else if (aspect < 1.6) {
-        camera.fov = Math.min(60, 46 * (1.5 / aspect));
+        camera.fov = Math.min(68, 56 * (1.4 / aspect));
       } else {
-        camera.fov = 46;
+        camera.fov = 58;
       }
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -1530,15 +1531,20 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     };
   }, []);
 
+  // Helper to frame student's first-person desk perspective with view of tablet, peers, and board
+  const setMySeatCameraTarget = (seatNum: number) => {
+    if (deskMeshesRef.current.has(seatNum)) {
+      const dg = deskMeshesRef.current.get(seatNum)!.group;
+      targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.36, dg.position.z + 0.08);
+      targetLookAtRef.current = new THREE.Vector3(-0.65, 1.65, -9.1);
+    }
+  };
+
   // Update camera when user selects or changes mySeat while in 'myseat' preset
   useEffect(() => {
     if (activePreset === 'myseat') {
       const targetSeat = mySeat || 13;
-      if (deskMeshesRef.current.has(targetSeat)) {
-        const dg = deskMeshesRef.current.get(targetSeat)!.group;
-        targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
-        targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
-      }
+      setMySeatCameraTarget(targetSeat);
     }
   }, [mySeat, activePreset]);
 
@@ -1597,29 +1603,17 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
     setActivePreset(preset);
 
     if (preset === 'overview') {
-      // Perspective inside room framing all 46 desks, teacher lectern, and blackboard
-      targetCamPosRef.current = new THREE.Vector3(-0.65, 5.2, 3.8);
-      targetLookAtRef.current = new THREE.Vector3(-0.65, 0.7, -2.4);
+      // Wide panoramic perspective inside room framing all 46 desks, teacher lectern, and blackboard
+      targetCamPosRef.current = new THREE.Vector3(-0.65, 3.85, 4.3);
+      targetLookAtRef.current = new THREE.Vector3(-0.65, 0.85, -1.8);
     } else if (preset === 'podium') {
-      // First-person Professor's perspective standing behind the lectern looking out at all students
-      targetCamPosRef.current = new THREE.Vector3(-4.4, 1.88, -8.2);
-      targetLookAtRef.current = new THREE.Vector3(-0.6, 1.35, -1.0);
+      // First-person Professor's perspective standing at lectern with clear, unobstructed view of all student chairs
+      targetCamPosRef.current = new THREE.Vector3(-4.4, 1.74, -8.0);
+      targetLookAtRef.current = new THREE.Vector3(-0.65, 1.10, -1.6);
     } else if (preset === 'myseat') {
-      // First-person Student's perspective seated at their desk looking ahead at the Smart Board
+      // First-person Student's perspective seated at their desk with sightline seeing desk tablet, classmates, and front board
       const targetSeatNum = mySeat || 13; // Defaults to seat 13 if no seat claimed yet
-      if (deskMeshesRef.current.has(targetSeatNum)) {
-        const deskGroup = deskMeshesRef.current.get(targetSeatNum)!.group;
-        targetCamPosRef.current = new THREE.Vector3(
-          deskGroup.position.x,
-          1.35,
-          deskGroup.position.z + 0.12
-        );
-        targetLookAtRef.current = new THREE.Vector3(
-          -0.65,
-          2.9,
-          -9.1
-        );
-      }
+      setMySeatCameraTarget(targetSeatNum);
     }
   };
 
@@ -1694,10 +1688,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                   className="seat-action-btn claim"
                   onClick={() => {
                     onSeatSelect(hoveredSeat);
-                    if (activePreset === 'myseat' && deskMeshesRef.current.has(hoveredSeat)) {
-                      const dg = deskMeshesRef.current.get(hoveredSeat)!.group;
-                      targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
-                      targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
+                    if (activePreset === 'myseat') {
+                      setMySeatCameraTarget(hoveredSeat);
                     }
                   }}
                 >
@@ -1933,12 +1925,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                           onClick={() => {
                             onSeatSelect(sNum);
                             setShowSeatPickerModal(false);
-                            if (deskMeshesRef.current.has(sNum)) {
-                              const dg = deskMeshesRef.current.get(sNum)!.group;
-                              targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
-                              targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
-                              setActivePreset('myseat');
-                            }
+                            setMySeatCameraTarget(sNum);
+                            setActivePreset('myseat');
                           }}
                           title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username}` : `Seat #${sNum} Available`}
                         >
@@ -1975,12 +1963,8 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
                           onClick={() => {
                             onSeatSelect(sNum);
                             setShowSeatPickerModal(false);
-                            if (deskMeshesRef.current.has(sNum)) {
-                              const dg = deskMeshesRef.current.get(sNum)!.group;
-                              targetCamPosRef.current = new THREE.Vector3(dg.position.x, 1.35, dg.position.z + 0.12);
-                              targetLookAtRef.current = new THREE.Vector3(-0.65, 2.9, -9.1);
-                              setActivePreset('myseat');
-                            }
+                            setMySeatCameraTarget(sNum);
+                            setActivePreset('myseat');
                           }}
                           title={isMine ? 'Your Seat' : isOccupied ? `Occupied by @${occupant?.username}` : `Seat #${sNum} Available`}
                         >

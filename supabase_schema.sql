@@ -176,3 +176,38 @@ BEGIN
     WHERE created_at < NOW() - INTERVAL '24 hours';
 END;
 $$ LANGUAGE plpgsql;
+
+-- 9. Global Campus Chat Table (DevClass MCA)
+CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+    username VARCHAR(50) NOT NULL,
+    avatar_url TEXT,
+    seat_number INT CHECK (seat_number BETWEEN 1 AND 46),
+    content TEXT NOT NULL,
+    reactions JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Ensure reactions column exists if table was already created
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb;
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON public.chat_messages (created_at DESC);
+
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read chat_messages" ON public.chat_messages;
+CREATE POLICY "Allow public read chat_messages" ON public.chat_messages FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow verified students insert chat_messages" ON public.chat_messages;
+CREATE POLICY "Allow verified students insert chat_messages" ON public.chat_messages FOR INSERT WITH CHECK (
+    EXISTS (
+        SELECT 1 FROM public.users u
+        WHERE u.id = user_id AND u.face_scan_status = 'verified'
+    ) OR user_id IS NULL
+);
+
+DROP POLICY IF EXISTS "Allow public update chat_reactions" ON public.chat_messages;
+CREATE POLICY "Allow public update chat_reactions" ON public.chat_messages FOR UPDATE USING (true) WITH CHECK (true);
+
+

@@ -81,12 +81,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
+  user-select: none;
 }
 
 .profile-close-btn:hover {
   background: rgba(28, 236, 132, 0.2);
   border-color: #8df0b4;
+  transform: rotate(90deg) scale(1.1);
+  box-shadow: 0 0 10px rgba(28, 236, 132, 0.4);
+}
+
+.profile-close-btn:active {
+  transform: rotate(90deg) scale(0.92);
+  transition-duration: 0.08s;
 }
 
 .profile-avatar-row {
@@ -104,10 +112,33 @@
   cursor: pointer;
   overflow: hidden;
   flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.avatar-preview-wrap:not(.readonly):hover {
+  transform: scale(1.05);
+}
+
+.avatar-preview-wrap.readonly {
+  cursor: default;
 }
 
 .avatar-preview-wrap:hover .avatar-overlay-hint {
   opacity: 1;
+}
+
+.profile-status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  padding: 3px 8px;
+  border-radius: 12px;
+  width: fit-content;
+  margin-top: 4px;
 }
 
 .avatar-overlay-hint {
@@ -287,6 +318,19 @@
   transition: all 0.2s ease;
 }
 
+.catchphrase-readonly-quote {
+  background: rgba(0, 20, 10, 0.6);
+  border: 1px dashed rgba(141, 240, 180, 0.4);
+  color: #a7f3d0;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-style: italic;
+  padding: 14px 16px;
+  border-radius: 6px;
+  line-height: 1.45;
+  box-shadow: inset 0 0 12px rgba(28, 236, 132, 0.08);
+}
+
 .catchphrase-input:focus {
   border-color: #8df0b4;
   box-shadow: 0 0 10px rgba(28, 236, 132, 0.4);
@@ -305,14 +349,22 @@
   padding: 10px;
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
   min-height: 42px;
+  user-select: none;
 }
 
 .save-catchphrase-btn:hover:not(:disabled) {
   background: #8df0b4;
   color: #03100a;
-  box-shadow: 0 0 15px rgba(28, 236, 132, 0.5);
+  box-shadow: 0 0 18px rgba(28, 236, 132, 0.6);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.save-catchphrase-btn:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.95);
+  box-shadow: 0 0 8px rgba(28, 236, 132, 0.3);
+  transition-duration: 0.08s;
 }
 
 .save-catchphrase-btn:disabled {

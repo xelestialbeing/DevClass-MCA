@@ -18,6 +18,35 @@ html, body, #root {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Cinematic view transition wrapper into Classroom */
+.classroom-view-transition {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #090d16;
+  animation: classroomCinematicEnter 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes classroomCinematicEnter {
+  0% {
+    opacity: 0;
+    transform: scale(1.025);
+    filter: blur(8px);
+  }
+  60% {
+    opacity: 0.9;
+    filter: blur(1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
 .terminal-landing {
   width: 100%;
   width: 100vw;
@@ -30,6 +59,18 @@ html, body, #root {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  animation: terminalPageEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes terminalPageEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Top Navigation Bar with Sign In / Sign Up */
@@ -43,6 +84,18 @@ html, body, #root {
   align-items: center;
   z-index: 100;
   pointer-events: none; /* Let canvas clicks through except on buttons */
+  animation: topNavDropIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.1s backwards;
+}
+
+@keyframes topNavDropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .system-status-badge {
@@ -61,6 +114,12 @@ html, body, #root {
   -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+}
+
+.system-status-badge:hover {
+  border-color: rgba(141, 240, 180, 0.6);
+  box-shadow: 0 2px 14px rgba(28, 236, 132, 0.25);
 }
 
 .system-status-badge .badge-text-mobile {
@@ -90,6 +149,7 @@ html, body, #root {
 }
 
 .nav-auth-btn {
+  position: relative;
   background: rgba(4, 18, 10, 0.85);
   border: 1px solid rgba(141, 240, 180, 0.45);
   color: #8df0b4;
@@ -101,7 +161,7 @@ html, body, #root {
   padding: 10px 18px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   min-height: 44px; /* Touch target for mobile / Android */
@@ -109,29 +169,64 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Tactile light sheen highlight on hover */
+.nav-auth-btn::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -75%;
+  width: 50%;
+  height: 200%;
+  background: linear-gradient(120deg, transparent, rgba(141, 240, 180, 0.25), transparent);
+  transform: rotate(25deg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
 .nav-auth-btn:hover {
-  background: rgba(28, 236, 132, 0.2);
+  background: rgba(28, 236, 132, 0.22);
   border-color: #8df0b4;
-  box-shadow: 0 0 16px rgba(28, 236, 132, 0.4);
-  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(28, 236, 132, 0.45), inset 0 0 12px rgba(28, 236, 132, 0.15);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.nav-auth-btn:hover::after {
+  opacity: 1;
+  animation: buttonLightSweep 0.75s ease-out forwards;
+}
+
+@keyframes buttonLightSweep {
+  0% { left: -75%; }
+  100% { left: 140%; }
 }
 
 .nav-auth-btn:active {
-  transform: scale(0.97);
+  transform: translateY(1px) scale(0.95);
+  box-shadow: 0 1px 8px rgba(28, 236, 132, 0.3);
+  transition-duration: 0.08s;
 }
 
 .nav-auth-btn.signup {
-  background: rgba(28, 236, 132, 0.15);
+  background: rgba(28, 236, 132, 0.16);
   border-color: #8df0b4;
-  box-shadow: 0 0 12px rgba(28, 236, 132, 0.25);
+  box-shadow: 0 0 14px rgba(28, 236, 132, 0.28);
 }
 
 .nav-auth-btn.signup:hover {
   background: #8df0b4;
   color: #03100a;
-  box-shadow: 0 0 24px rgba(28, 236, 132, 0.6);
+  box-shadow: 0 6px 26px rgba(28, 236, 132, 0.65);
+  transform: translateY(-2.5px) scale(1.03);
+}
+
+.nav-auth-btn.signup:active {
+  transform: translateY(1px) scale(0.94);
+  box-shadow: 0 2px 10px rgba(28, 236, 132, 0.4);
 }
 
 /* Invisible full-screen input capturing all typing directly into CRT display */
