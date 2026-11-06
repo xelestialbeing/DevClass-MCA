@@ -72,6 +72,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
   const currentUsername = currentUser?.username ? currentUser.username.replace(/^@/, '').trim() : '';
 
+  const activeReactionMsg = useMemo(
+    () => messages.find((m) => m.id === activeReactionMsgId) || null,
+    [messages, activeReactionMsgId]
+  );
+
   // Classmates active in conversation for the Details inspector
   const uniqueClassmates = useMemo(() => {
     const map = new Map<string, { username: string; avatarUrl?: string; userId?: string; seatNumber?: number | null }>();
@@ -1099,6 +1104,114 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             inspectProfileUser.username.toLowerCase() !== (currentUser.username || '').toLowerCase()
           }
         />
+      )}
+
+      {/* Mobile Reaction & Message Action Sheet (Optimized for Android & Touch Devices) */}
+      {activeReactionMsg && (
+        <div
+          className="mobile-action-sheet-backdrop"
+          onClick={() => setActiveReactionMsgId(null)}
+        >
+          <div className="mobile-action-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-sheet-drag-handle" />
+
+            {/* Reaction Emojis Cluster */}
+            <div className="mobile-reaction-emojis-cluster">
+              {MESSAGE_REACTIONS.map((r) => {
+                const hasReacted = Boolean(
+                  activeReactionMsg.reactions?.[r.emoji]?.includes(currentUsername)
+                );
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={`mobile-reaction-btn ${hasReacted ? 'active' : ''}`}
+                    onClick={() => {
+                      handleToggleReaction(activeReactionMsg.id, r.emoji);
+                      setActiveReactionMsgId(null);
+                    }}
+                    title={r.label}
+                    aria-label={`React with ${r.label}`}
+                  >
+                    <span className="mobile-reaction-emoji">{r.emoji}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Actions List */}
+            <div className="mobile-action-items-list">
+              {/* Copy Message Text */}
+              <button
+                type="button"
+                className="mobile-action-row-btn"
+                onClick={() => {
+                  if (navigator.clipboard) {
+                    navigator.clipboard.writeText(activeReactionMsg.content).catch(() => {});
+                  }
+                  setActiveReactionMsgId(null);
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <span>Copy Message Text</span>
+              </button>
+
+              {/* Author Actions */}
+              {Boolean(currentUsername && activeReactionMsg.username.toLowerCase() === currentUsername.toLowerCase()) && (() => {
+                const actionStatus = getMessageActionStatus(activeReactionMsg.createdAt);
+                if (actionStatus.canEditOrDelete) {
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        className="mobile-action-row-btn"
+                        onClick={() => handleStartEdit(activeReactionMsg)}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        <span>Edit Message ({actionStatus.minutesRemaining}m left)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="mobile-action-row-btn destructive"
+                        onClick={() => {
+                          const target = activeReactionMsg;
+                          setActiveReactionMsgId(null);
+                          setMessageToDelete(target);
+                        }}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                        <span>Delete Message</span>
+                      </button>
+                    </>
+                  );
+                }
+                return (
+                  <div className="mobile-action-locked-badge">
+                    🔒 Message sent more than 30m ago (cannot be edited or deleted)
+                  </div>
+                );
+              })()}
+            </div>
+
+            <button
+              type="button"
+              className="mobile-action-cancel-btn"
+              onClick={() => setActiveReactionMsgId(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Delete Message Confirmation Dialog */}
