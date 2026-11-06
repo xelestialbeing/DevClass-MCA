@@ -230,8 +230,9 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
 
     const targetId = msg.id;
-    // 1. Optimistic removal in 0ms
+    // 1. Optimistic removal in 0ms & immediate ref synchronization
     setMessages((prev) => prev.filter((m) => m.id !== targetId));
+    messagesRef.current = messagesRef.current.filter((m) => m.id !== targetId);
     setMessageToDelete(null);
     setActiveReactionMsgId(null);
 

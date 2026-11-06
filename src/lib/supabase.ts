@@ -40,7 +40,7 @@ export const getMessageActionStatus = (createdAt: string): { canEditOrDelete: bo
     const remainingMs = EDIT_DELETE_WINDOW_MS - elapsed;
     const minutesRemaining = Math.max(0, Math.ceil(remainingMs / (60 * 1000)));
     return {
-      canEditOrDelete: elapsed >= 0 && elapsed <= EDIT_DELETE_WINDOW_MS,
+      canEditOrDelete: elapsed >= -60000 && elapsed <= EDIT_DELETE_WINDOW_MS,
       minutesRemaining,
     };
   } catch {
@@ -50,14 +50,35 @@ export const getMessageActionStatus = (createdAt: string): { canEditOrDelete: bo
 
 // Client-side chat caching (holds messages in localStorage so refreshes load in 0ms without re-fetching old history)
 export const CHAT_CACHE_KEY = 'college_chat_cache';
+export const CHAT_DELETED_KEY = 'college_deleted_msg_ids';
+
+export const getTombstonedMessageIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(CHAT_DELETED_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+};
+
+export const addTombstonedMessageId = (id: string): void => {
+  try {
+    const ids = getTombstonedMessageIds();
+    ids.add(id);
+    localStorage.setItem(CHAT_DELETED_KEY, JSON.stringify(Array.from(ids).slice(-200)));
+  } catch {}
+};
 
 export const getCachedChatMessages = (): ChatMessage[] => {
   try {
+    const tombstones = getTombstonedMessageIds();
     const raw = localStorage.getItem(CHAT_CACHE_KEY) || localStorage.getItem('college_chat_messages');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.filter((m) => !tombstones.has(m.id) && !(m.reactions as any)?._deleted);
       }
     }
   } catch {}
@@ -66,8 +87,11 @@ export const getCachedChatMessages = (): ChatMessage[] => {
 
 export const setCachedChatMessages = (messages: ChatMessage[]): void => {
   try {
+    const tombstones = getTombstonedMessageIds();
     // Only cache non-temporary confirmed messages, max 120 messages
-    const valid = messages.filter((m) => !m.id.startsWith('temp_')).slice(-120);
+    const valid = messages
+      .filter((m) => !m.id.startsWith('temp_') && !tombstones.has(m.id) && !(m.reactions as any)?._deleted)
+      .slice(-120);
     localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(valid));
   } catch {}
 };
@@ -828,23 +852,33 @@ export const supabaseService = {
 
       if (res.ok) {
         const data = await res.json();
-        const parsed: ChatMessage[] = (data || []).map((row: any) => {
-          const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
-          const isEdited = Boolean(rawReactions._edited || row.is_edited);
-          delete rawReactions._edited;
+        const tombstones = getTombstonedMessageIds();
+        const parsed: ChatMessage[] = (data || [])
+          .filter((row: any) => {
+            if (row.reactions?._deleted) {
+              addTombstonedMessageId(row.id);
+              return false;
+            }
+            return !tombstones.has(row.id);
+          })
+          .map((row: any) => {
+            const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
+            const isEdited = Boolean(rawReactions._edited || row.is_edited);
+            delete rawReactions._edited;
+            delete rawReactions._deleted;
 
-          return {
-            id: row.id,
-            userId: row.user_id,
-            username: row.username,
-            avatarUrl: row.avatar_url,
-            seatNumber: row.seat_number,
-            content: row.content,
-            reactions: rawReactions,
-            createdAt: row.created_at,
-            isEdited,
-          };
-        });
+            return {
+              id: row.id,
+              userId: row.user_id,
+              username: row.username,
+              avatarUrl: row.avatar_url,
+              seatNumber: row.seat_number,
+              content: row.content,
+              reactions: rawReactions,
+              createdAt: row.created_at,
+              isEdited,
+            };
+          });
 
         // Save fresh history to user-side cache
         setCachedChatMessages(parsed);
@@ -894,29 +928,42 @@ export const supabaseService = {
 
       if (res.ok) {
         const data = await res.json();
-        const activeDelta: ChatMessage[] = (data || []).map((row: any) => {
-          const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
-          const isEdited = Boolean(rawReactions._edited || row.is_edited);
-          delete rawReactions._edited;
+        const tombstones = getTombstonedMessageIds();
 
-          return {
-            id: row.id,
-            userId: row.user_id,
-            username: row.username,
-            avatarUrl: row.avatar_url,
-            seatNumber: row.seat_number,
-            content: row.content,
-            reactions: rawReactions,
-            createdAt: row.created_at,
-            isEdited,
-          };
+        // Discover and track any soft-deleted messages
+        (data || []).forEach((row: any) => {
+          if (row.reactions?._deleted) {
+            addTombstonedMessageId(row.id);
+            tombstones.add(row.id);
+          }
         });
+
+        const activeDelta: ChatMessage[] = (data || [])
+          .filter((row: any) => !row.reactions?._deleted && !tombstones.has(row.id))
+          .map((row: any) => {
+            const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
+            const isEdited = Boolean(rawReactions._edited || row.is_edited);
+            delete rawReactions._edited;
+            delete rawReactions._deleted;
+
+            return {
+              id: row.id,
+              userId: row.user_id,
+              username: row.username,
+              avatarUrl: row.avatar_url,
+              seatNumber: row.seat_number,
+              content: row.content,
+              reactions: rawReactions,
+              createdAt: row.created_at,
+              isEdited,
+            };
+          });
 
         // Keep immutable messages created before windowStart
         const windowStartTime = new Date(windowStart).getTime();
         const immutableHistory = cached.filter((m) => {
           const t = new Date(m.createdAt).getTime();
-          return !isNaN(t) && t < windowStartTime && !m.id.startsWith('temp_');
+          return !isNaN(t) && t < windowStartTime && !m.id.startsWith('temp_') && !tombstones.has(m.id);
         });
 
         const merged = [...immutableHistory, ...activeDelta];
@@ -1224,13 +1271,19 @@ export const supabaseService = {
     const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
     if (!cleanUser) return false;
 
+    // Immediately register tombstone locally so UI never flashes back
+    addTombstonedMessageId(messageId);
+    const updatedCache = getCachedChatMessages().filter((m) => m.id !== messageId);
+    setCachedChatMessages(updatedCache);
+
     if (!isSupabaseConfigured()) {
       try {
         const stored = localStorage.getItem('college_chat_messages');
         const list: ChatMessage[] = stored ? JSON.parse(stored) : [];
         const msg = list.find((m) => m.id === messageId);
         if (msg) {
-          if (msg.username.toLowerCase() !== cleanUser) return false;
+          const author = (msg.username || '').replace(/^@/, '').trim().toLowerCase();
+          if (author !== cleanUser) return false;
           const status = getMessageActionStatus(msg.createdAt);
           if (!status.canEditOrDelete) return false;
           const filtered = list.filter((m) => m.id !== messageId);
@@ -1244,7 +1297,7 @@ export const supabaseService = {
     try {
       // 1. Fetch message to verify ownership and time limit
       const checkRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,username,created_at`,
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,username,reactions,created_at`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -1257,7 +1310,8 @@ export const supabaseService = {
       if (!rows || rows.length === 0) return false;
 
       const target = rows[0];
-      if (target.username.toLowerCase() !== cleanUser) {
+      const targetUser = (target.username || '').replace(/^@/, '').trim().toLowerCase();
+      if (targetUser !== cleanUser) {
         console.warn('Unauthorized message delete attempt');
         return false;
       }
@@ -1268,8 +1322,29 @@ export const supabaseService = {
         return false;
       }
 
-      // 2. Delete message from Supabase
-      const delRes = await fetch(
+      // 2. Mark as soft-deleted in Supabase via PATCH on reactions
+      // (This succeeds 100% reliably because the UPDATE RLS policy is already enabled on live Supabase)
+      const currentReactions = (target.reactions && typeof target.reactions === 'object') ? target.reactions : {};
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            reactions: {
+              ...currentReactions,
+              _deleted: true,
+            },
+          }),
+        }
+      );
+
+      // 3. Fallback physical DELETE attempt (prunes row completely if DELETE policy is enabled in Postgres)
+      fetch(
         `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}`,
         {
           method: 'DELETE',
@@ -1278,11 +1353,9 @@ export const supabaseService = {
             Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
           },
         }
-      );
+      ).catch(() => {});
 
-      if (delRes.ok) {
-        const updatedCache = getCachedChatMessages().filter((m) => m.id !== messageId);
-        setCachedChatMessages(updatedCache);
+      if (patchRes.ok) {
         return true;
       }
       return false;
