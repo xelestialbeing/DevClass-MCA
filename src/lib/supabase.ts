@@ -26,7 +26,27 @@ export interface ChatMessage {
   content: string;
   reactions?: Record<string, string[]>;
   createdAt: string;
+  isEdited?: boolean;
 }
+
+// 15 to 30 minutes time frame limit for editing and deleting own messages
+export const EDIT_DELETE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+
+export const getMessageActionStatus = (createdAt: string): { canEditOrDelete: boolean; minutesRemaining: number } => {
+  try {
+    const timestamp = new Date(createdAt).getTime();
+    if (isNaN(timestamp)) return { canEditOrDelete: false, minutesRemaining: 0 };
+    const elapsed = Date.now() - timestamp;
+    const remainingMs = EDIT_DELETE_WINDOW_MS - elapsed;
+    const minutesRemaining = Math.max(0, Math.ceil(remainingMs / (60 * 1000)));
+    return {
+      canEditOrDelete: elapsed >= 0 && elapsed <= EDIT_DELETE_WINDOW_MS,
+      minutesRemaining,
+    };
+  } catch {
+    return { canEditOrDelete: false, minutesRemaining: 0 };
+  }
+};
 
 const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ({} as Record<string, string | undefined>);
 const SUPABASE_URL = env.VITE_SUPABASE_URL || '';
@@ -790,16 +810,23 @@ export const supabaseService = {
 
       if (res.ok) {
         const data = await res.json();
-        return (data || []).map((row: any) => ({
-          id: row.id,
-          userId: row.user_id,
-          username: row.username,
-          avatarUrl: row.avatar_url,
-          seatNumber: row.seat_number,
-          content: row.content,
-          reactions: row.reactions || {},
-          createdAt: row.created_at,
-        }));
+        return (data || []).map((row: any) => {
+          const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
+          const isEdited = Boolean(rawReactions._edited || row.is_edited);
+          delete rawReactions._edited;
+
+          return {
+            id: row.id,
+            userId: row.user_id,
+            username: row.username,
+            avatarUrl: row.avatar_url,
+            seatNumber: row.seat_number,
+            content: row.content,
+            reactions: rawReactions,
+            createdAt: row.created_at,
+            isEdited,
+          };
+        });
       }
     } catch (err) {
       console.warn('Chat messages fetch warning:', err);
@@ -985,6 +1012,173 @@ export const supabaseService = {
       console.warn('Supabase toggle reaction error:', err);
     }
     return null;
+  },
+
+  // Edit message within 15 to 30 mins time frame (enforced on author identity and created_at timestamp)
+  async editChatMessage(
+    messageId: string,
+    newContent: string,
+    username: string
+  ): Promise<ChatMessage | null> {
+    const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
+    const cleanContent = newContent.trim();
+    if (!cleanUser || !cleanContent) return null;
+
+    if (!isSupabaseConfigured()) {
+      try {
+        const stored = localStorage.getItem('college_chat_messages');
+        const list: ChatMessage[] = stored ? JSON.parse(stored) : [];
+        const idx = list.findIndex((m) => m.id === messageId);
+        if (idx !== -1) {
+          const msg = list[idx];
+          if (msg.username.toLowerCase() !== cleanUser) return null;
+          const status = getMessageActionStatus(msg.createdAt);
+          if (!status.canEditOrDelete) return null;
+          list[idx] = { ...msg, content: cleanContent, isEdited: true };
+          localStorage.setItem('college_chat_messages', JSON.stringify(list));
+          return list[idx];
+        }
+      } catch {}
+      return null;
+    }
+
+    try {
+      // 1. Fetch message to verify ownership and time limit
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,username,reactions,created_at`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (!checkRes.ok) return null;
+      const rows = await checkRes.json();
+      if (!rows || rows.length === 0) return null;
+
+      const target = rows[0];
+      if (target.username.toLowerCase() !== cleanUser) {
+        console.warn('Unauthorized message edit attempt');
+        return null;
+      }
+
+      const status = getMessageActionStatus(target.created_at);
+      if (!status.canEditOrDelete) {
+        console.warn('Message edit window has expired (30 minute limit)');
+        return null;
+      }
+
+      const updatedReactions = { ...(target.reactions || {}), _edited: true };
+
+      // 2. Patch message content and edited marker
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({
+            content: cleanContent,
+            reactions: updatedReactions,
+          }),
+        }
+      );
+
+      if (patchRes.ok) {
+        const updated = await patchRes.json();
+        if (updated && updated[0]) {
+          const cleanReactions = { ...(updated[0].reactions || {}) };
+          delete cleanReactions._edited;
+          return {
+            id: updated[0].id,
+            userId: updated[0].user_id,
+            username: updated[0].username,
+            avatarUrl: updated[0].avatar_url,
+            seatNumber: updated[0].seat_number,
+            content: updated[0].content,
+            reactions: cleanReactions,
+            createdAt: updated[0].created_at,
+            isEdited: true,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase edit message error:', err);
+    }
+    return null;
+  },
+
+  // Delete message within 15 to 30 mins time frame (enforced on author identity and created_at timestamp)
+  async deleteChatMessage(messageId: string, username: string): Promise<boolean> {
+    const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
+    if (!cleanUser) return false;
+
+    if (!isSupabaseConfigured()) {
+      try {
+        const stored = localStorage.getItem('college_chat_messages');
+        const list: ChatMessage[] = stored ? JSON.parse(stored) : [];
+        const msg = list.find((m) => m.id === messageId);
+        if (msg) {
+          if (msg.username.toLowerCase() !== cleanUser) return false;
+          const status = getMessageActionStatus(msg.createdAt);
+          if (!status.canEditOrDelete) return false;
+          const filtered = list.filter((m) => m.id !== messageId);
+          localStorage.setItem('college_chat_messages', JSON.stringify(filtered));
+          return true;
+        }
+      } catch {}
+      return false;
+    }
+
+    try {
+      // 1. Fetch message to verify ownership and time limit
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,username,created_at`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (!checkRes.ok) return false;
+      const rows = await checkRes.json();
+      if (!rows || rows.length === 0) return false;
+
+      const target = rows[0];
+      if (target.username.toLowerCase() !== cleanUser) {
+        console.warn('Unauthorized message delete attempt');
+        return false;
+      }
+
+      const status = getMessageActionStatus(target.created_at);
+      if (!status.canEditOrDelete) {
+        console.warn('Message delete window has expired (30 minute limit)');
+        return false;
+      }
+
+      // 2. Delete message from Supabase
+      const delRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      return delRes.ok;
+    } catch (err) {
+      console.warn('Supabase delete message error:', err);
+      return false;
+    }
   },
 };
 

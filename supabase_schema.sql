@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
 
 -- Ensure reactions column exists if table was already created
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON public.chat_messages (created_at DESC);
 
@@ -209,5 +210,9 @@ CREATE POLICY "Allow verified students insert chat_messages" ON public.chat_mess
 
 DROP POLICY IF EXISTS "Allow public update chat_reactions" ON public.chat_messages;
 CREATE POLICY "Allow public update chat_reactions" ON public.chat_messages FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public delete chat_messages" ON public.chat_messages;
+CREATE POLICY "Allow public delete chat_messages" ON public.chat_messages FOR DELETE USING (true);
+
 
 

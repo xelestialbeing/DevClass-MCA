@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ChatMessage, UserProfile, supabaseService } from '../lib/supabase';
+import { ChatMessage, UserProfile, supabaseService, getMessageActionStatus } from '../lib/supabase';
 import { ProfileModal } from './ProfileModal';
 import './GlobalChat.css';
 
@@ -36,6 +36,8 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const [showInfoSheet, setShowInfoSheet] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectProfileUser, setInspectProfileUser] = useState<UserProfile | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const [messageToDelete, setMessageToDelete] = useState<ChatMessage | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -152,7 +154,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (showInfoSheet) {
+        if (messageToDelete) {
+          setMessageToDelete(null);
+        } else if (editingMessage) {
+          handleCancelEdit();
+        } else if (showInfoSheet) {
           setShowInfoSheet(false);
         } else if (activeReactionMsgId) {
           setActiveReactionMsgId(null);
@@ -164,7 +170,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showInfoSheet, activeReactionMsgId]);
+  }, [isOpen, onClose, showInfoSheet, activeReactionMsgId, editingMessage, messageToDelete]);
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -174,7 +180,55 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [inputText]);
 
-  // Instant Optimistic Message Dispatch (0ms UI latency with tactile spring animations)
+  // Start editing a message within the 15-30 min window
+  const handleStartEdit = (msg: ChatMessage) => {
+    const status = getMessageActionStatus(msg.createdAt);
+    if (!status.canEditOrDelete) {
+      alert('This message was sent more than 30 minutes ago and can no longer be edited.');
+      setActiveReactionMsgId(null);
+      return;
+    }
+    setEditingMessage(msg);
+    setInputText(msg.content);
+    setActiveReactionMsgId(null);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      if (textareaRef.current) {
+        textareaRef.current.setSelectionRange(msg.content.length, msg.content.length);
+      }
+    }, 40);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setInputText('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  };
+
+  // Confirm delete message within the 15-30 min window
+  const handleConfirmDelete = async (msg: ChatMessage) => {
+    const status = getMessageActionStatus(msg.createdAt);
+    if (!status.canEditOrDelete) {
+      alert('This message was sent more than 30 minutes ago and can no longer be deleted.');
+      setMessageToDelete(null);
+      return;
+    }
+
+    const targetId = msg.id;
+    // 1. Optimistic removal in 0ms
+    setMessages((prev) => prev.filter((m) => m.id !== targetId));
+    setMessageToDelete(null);
+    setActiveReactionMsgId(null);
+
+    if (editingMessage?.id === targetId) {
+      handleCancelEdit();
+    }
+
+    // 2. Persist deletion in background
+    await supabaseService.deleteChatMessage(targetId, currentUsername);
+  };
+
+  // Instant Optimistic Message Dispatch & Update (0ms UI latency with tactile spring animations)
   const handleSendMessage = () => {
     const text = inputText.trim();
     if (!text || !isApproved) return;
@@ -183,6 +237,45 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     const userId = currentUser?.id;
     const avatarUrl = currentUser?.avatarUrl;
 
+    // Handle Edit Submission
+    if (editingMessage) {
+      const targetId = editingMessage.id;
+      const originalText = editingMessage.content;
+      if (text === originalText) {
+        handleCancelEdit();
+        return;
+      }
+
+      const status = getMessageActionStatus(editingMessage.createdAt);
+      if (!status.canEditOrDelete) {
+        alert('Message edit window has expired (30-minute limit exceeded).');
+        handleCancelEdit();
+        return;
+      }
+
+      setIsDispatchingAnim(true);
+      setTimeout(() => setIsDispatchingAnim(false), 360);
+
+      // Optimistic inline update in 0ms
+      setMessages((prev) =>
+        prev.map((m) => (m.id === targetId ? { ...m, content: text, isEdited: true } : m))
+      );
+      handleCancelEdit();
+
+      // Persist in background
+      supabaseService.editChatMessage(targetId, text, currentUsername).then((confirmed) => {
+        if (confirmed) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === targetId ? confirmed : m))
+          );
+        }
+      }).catch((err) => {
+        console.warn('Failed to persist edit:', err);
+      });
+      return;
+    }
+
+    // Normal Send:
     // 1. Trigger immediate button pop/spring animation
     setIsDispatchingAnim(true);
     setTimeout(() => setIsDispatchingAnim(false), 360);
@@ -612,7 +705,10 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                             setActiveReactionMsgId(msg.id);
                           }}
                         >
-                          <p className="bubble-text-content">{msg.content}</p>
+                          <p className="bubble-text-content">
+                            {msg.content}
+                            {msg.isEdited && <span className="bubble-edited-badge" title="Edited message"> (edited)</span>}
+                          </p>
 
                           {/* Reaction Action Trigger */}
                           <button
@@ -622,8 +718,8 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                               e.stopPropagation();
                               setActiveReactionMsgId(isReactionPickerOpen ? null : msg.id);
                             }}
-                            title="Add Reaction"
-                            aria-label="React"
+                            title="Add Reaction / Manage"
+                            aria-label="React or manage"
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                               <circle cx="12" cy="12" r="10" />
@@ -633,28 +729,77 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                             </svg>
                           </button>
 
-                          {/* Floating Reaction Bar */}
+                          {/* Floating Reaction Bar & Manage Actions */}
                           {isReactionPickerOpen && (
                             <div
                               className="floating-reaction-bar"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              {MESSAGE_REACTIONS.map((r) => {
-                                const hasReacted = Boolean(
-                                  reactions[r.emoji]?.includes(currentUsername)
-                                );
-                                return (
-                                  <button
-                                    key={r.id}
-                                    type="button"
-                                    className={`reaction-item-btn ${hasReacted ? 'active' : ''}`}
-                                    onClick={() => handleToggleReaction(msg.id, r.emoji)}
-                                    title={r.label}
-                                  >
-                                    <span className="reaction-glyph-icon">{r.emoji}</span>
-                                  </button>
-                                );
-                              })}
+                              <div className="reaction-emojis-cluster">
+                                {MESSAGE_REACTIONS.map((r) => {
+                                  const hasReacted = Boolean(
+                                    reactions[r.emoji]?.includes(currentUsername)
+                                  );
+                                  return (
+                                    <button
+                                      key={r.id}
+                                      type="button"
+                                      className={`reaction-item-btn ${hasReacted ? 'active' : ''}`}
+                                      onClick={() => handleToggleReaction(msg.id, r.emoji)}
+                                      title={r.label}
+                                    >
+                                      <span className="reaction-glyph-icon">{r.emoji}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {isMine && (
+                                <div className="floating-manage-group">
+                                  <div className="floating-manage-divider" />
+                                  {(() => {
+                                    const actionStatus = getMessageActionStatus(msg.createdAt);
+                                    if (actionStatus.canEditOrDelete) {
+                                      return (
+                                        <>
+                                          <button
+                                            type="button"
+                                            className="manage-item-btn edit"
+                                            onClick={() => handleStartEdit(msg)}
+                                            title={`Edit message (${actionStatus.minutesRemaining}m remaining)`}
+                                          >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                            </svg>
+                                            <span>Edit ({actionStatus.minutesRemaining}m)</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="manage-item-btn delete"
+                                            onClick={() => {
+                                              setActiveReactionMsgId(null);
+                                              setMessageToDelete(msg);
+                                            }}
+                                            title={`Delete message (${actionStatus.minutesRemaining}m remaining)`}
+                                          >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                              <polyline points="3 6 5 6 21 6" />
+                                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                            </svg>
+                                            <span>Delete</span>
+                                          </button>
+                                        </>
+                                      );
+                                    }
+                                    return (
+                                      <span className="manage-item-expired" title="Message can no longer be edited or deleted (30-minute window exceeded)">
+                                        🔒 30m window closed
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -720,6 +865,31 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             Message Input Dock
             ---------------------------------------------------------------------- */}
         <footer className="chat-composer-dock">
+          {/* Active Edit Message Banner */}
+          {editingMessage && (
+            <div className="composer-edit-banner">
+              <div className="edit-banner-left">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="edit-banner-icon">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                <div className="edit-banner-text-wrap">
+                  <span className="edit-banner-heading">Editing message</span>
+                  <span className="edit-banner-preview">{editingMessage.content}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="edit-banner-cancel-action"
+                onClick={handleCancelEdit}
+                title="Cancel editing (ESC)"
+                aria-label="Cancel edit"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {!isApproved ? (
             <div className="composer-locked-notice">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -747,7 +917,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <textarea
                 ref={textareaRef}
                 className="composer-text-input"
-                placeholder="Type a message..."
+                placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDownTextarea}
@@ -761,13 +931,19 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                 className={`composer-send-btn ${inputText.trim() ? 'active' : ''} ${isDispatchingAnim ? 'dispatching' : ''}`}
                 onClick={handleSendMessage}
                 disabled={!inputText.trim()}
-                title="Send"
-                aria-label="Send"
+                title={editingMessage ? "Save edit" : "Send"}
+                aria-label={editingMessage ? "Save edit" : "Send"}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5" />
-                  <polyline points="5 12 12 5 19 12" />
-                </svg>
+                {editingMessage ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
+                )}
               </button>
             </div>
           )}
@@ -882,6 +1058,43 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             inspectProfileUser.username.toLowerCase() !== (currentUser.username || '').toLowerCase()
           }
         />
+      )}
+
+      {/* Delete Message Confirmation Dialog */}
+      {messageToDelete && (
+        <div className="chat-delete-modal-backdrop" onClick={() => setMessageToDelete(null)}>
+          <div className="chat-delete-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="delete-modal-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </div>
+            <h3 className="delete-modal-title">Delete Message?</h3>
+            <p className="delete-modal-desc">
+              Are you sure you want to delete this message? This action will permanently remove it from the classroom chat for everyone.
+            </p>
+            <div className="delete-modal-preview">
+              "{messageToDelete.content}"
+            </div>
+            <div className="delete-modal-actions">
+              <button
+                type="button"
+                className="delete-modal-btn cancel"
+                onClick={() => setMessageToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="delete-modal-btn confirm"
+                onClick={() => handleConfirmDelete(messageToDelete)}
+              >
+                Delete Message
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

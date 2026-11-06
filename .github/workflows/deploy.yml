@@ -59,8 +59,13 @@ jobs:
           VITE_TELEGRAM_BOT_USERNAME: ${{ secrets.VITE_TELEGRAM_BOT_USERNAME }}
         run: npm run build
 
-      - name: 6. Test Backend Worker Syntax (node syntax check)
-        run: node -c telegram_bot.cjs
+      - name: 6. Test Telegram Bot Worker (Smoke Test & Connectivity)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: node telegram_bot.cjs --test
 
       # ------------------------------------------------------------------------
       # AUTOMATIC ROLLBACK TRIGGER (IF TESTS FAIL)
@@ -103,6 +108,8 @@ jobs:
             npm run build
             
             # 3. Reload ONLY the college bot (does NOT touch airdrop-app or price-tracker-bot!)
-            pm2 restart college-bot || pm2 start telegram_bot.cjs --name "college-bot"
+            pm2 restart college-bot --update-env || pm2 start telegram_bot.cjs --name "college-bot"
+            pm2 save
+            pm2 status college-bot
             
             echo "🎉 DevClass-MCA successfully updated on devclassmca.celestialbeing.space!"

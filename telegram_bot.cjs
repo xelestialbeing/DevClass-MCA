@@ -23,19 +23,44 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-const BOT_TOKEN = env.TELEGRAM_BOT_TOKEN || env.VITE_TELEGRAM_BOT_TOKEN;
-const SUPABASE_URL = env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = env.VITE_SUPABASE_ANON_KEY;
-const ADMIN_CHAT_ID = (env.TELEGRAM_ADMIN_CHAT_ID || env.VITE_TELEGRAM_ADMIN_CHAT_ID || '').trim();
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || env.VITE_TELEGRAM_BOT_TOKEN;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY;
+const ADMIN_CHAT_ID = (process.env.TELEGRAM_ADMIN_CHAT_ID || env.TELEGRAM_ADMIN_CHAT_ID || env.VITE_TELEGRAM_ADMIN_CHAT_ID || '').trim();
+
+const isSmokeTest = process.argv.includes('--test') || process.argv.includes('--dry-run');
 
 if (!BOT_TOKEN) {
-  console.error('❌ Error: TELEGRAM_BOT_TOKEN (or VITE_TELEGRAM_BOT_TOKEN) not found in .env');
+  if (isSmokeTest) {
+    console.warn('⚠ Notice: TELEGRAM_BOT_TOKEN not provided in environment for smoke test. Worker syntax verified.');
+    process.exit(0);
+  }
+  console.error('❌ Error: TELEGRAM_BOT_TOKEN (or VITE_TELEGRAM_BOT_TOKEN) not found in environment or .env');
   process.exit(1);
 }
 
-console.log('🤖 Telegram Verification Bot initializing for DevClass MCA...');
-console.log(`📡 Linked to Supabase: ${SUPABASE_URL}`);
-console.log(`🛡 Admin Chat Authorization: ${ADMIN_CHAT_ID ? `Enforced (Chat ID: ${ADMIN_CHAT_ID})` : '⚠ NOT SET'}`);
+if (isSmokeTest) {
+  console.log('🤖 Telegram Verification Bot Smoke Test: Validating token & API connectivity...');
+  fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`)
+    .then((res) => res.json())
+    .then((data) => {
+      if (data && data.ok) {
+        console.log(`✅ Live Telegram Bot Verified! Connected as @${data.result.username} (ID: ${data.result.id})`);
+        process.exit(0);
+      } else {
+        console.error('❌ Telegram Bot verification failed:', data);
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error('❌ Telegram API network error during test:', err.message);
+      process.exit(1);
+    });
+} else {
+  console.log('🤖 Telegram Verification Bot initializing for DevClass MCA...');
+  console.log(`📡 Linked to Supabase: ${SUPABASE_URL || 'Not Configured'}`);
+  console.log(`🛡 Admin Chat Authorization: ${ADMIN_CHAT_ID ? `Enforced (Chat ID: ${ADMIN_CHAT_ID})` : '⚠ NOT SET'}`);
+}
 
 // Store user session state for active `/start CODE` tracking
 const sessionMap = new Map();
