@@ -29,6 +29,20 @@ export interface ChatMessage {
   isEdited?: boolean;
 }
 
+export interface ChatGroup {
+  id: string;
+  name: string;
+  description?: string;
+  emoji: string;
+  ownerId?: string;
+  ownerUsername: string;
+  isPrivate?: boolean;
+  memberCount: number;
+  isMember?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 // 15 to 30 minutes time frame limit for editing and deleting own messages
 export const EDIT_DELETE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -51,6 +65,9 @@ export const getMessageActionStatus = (createdAt: string): { canEditOrDelete: bo
 // Client-side chat caching (holds messages in localStorage so refreshes load in 0ms without re-fetching old history)
 export const CHAT_CACHE_KEY = 'college_chat_cache';
 export const CHAT_DELETED_KEY = 'college_deleted_msg_ids';
+export const CHAT_GROUPS_KEY = 'college_chat_groups';
+export const CHAT_GROUP_MEMBERS_KEY = 'college_chat_group_members';
+export const CHAT_GROUP_MESSAGES_KEY = 'college_chat_group_messages';
 
 export const getTombstonedMessageIds = (): Set<string> => {
   try {
@@ -94,6 +111,67 @@ export const setCachedChatMessages = (messages: ChatMessage[]): void => {
       .slice(-120);
     localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(valid));
   } catch {}
+};
+
+type LocalChatGroupMember = {
+  groupId: string;
+  userId?: string;
+  username: string;
+  role: 'owner' | 'member';
+};
+
+const readLocalJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeLocalJson = (key: string, value: unknown): void => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+
+const getLocalChatGroups = (): ChatGroup[] => readLocalJson<ChatGroup[]>(CHAT_GROUPS_KEY, []);
+const setLocalChatGroups = (groups: ChatGroup[]): void => writeLocalJson(CHAT_GROUPS_KEY, groups);
+const getLocalGroupMembers = (): LocalChatGroupMember[] => readLocalJson<LocalChatGroupMember[]>(CHAT_GROUP_MEMBERS_KEY, []);
+const setLocalGroupMembers = (members: LocalChatGroupMember[]): void => writeLocalJson(CHAT_GROUP_MEMBERS_KEY, members);
+const getLocalGroupMessages = (): ChatMessage[] => readLocalJson<ChatMessage[]>(CHAT_GROUP_MESSAGES_KEY, []);
+const setLocalGroupMessages = (messages: ChatMessage[]): void => writeLocalJson(CHAT_GROUP_MESSAGES_KEY, messages);
+
+const mapChatGroupRow = (row: any, isMember = false): ChatGroup => ({
+  id: row.id,
+  name: row.name,
+  description: row.description || '',
+  emoji: row.emoji || '💬',
+  ownerId: row.owner_id || undefined,
+  ownerUsername: row.owner_username || 'student',
+  isPrivate: Boolean(row.is_private),
+  memberCount: Number(row.member_count || 1),
+  isMember,
+  createdAt: row.created_at || new Date().toISOString(),
+  updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+});
+
+const mapGroupMessageRow = (row: any): ChatMessage => {
+  const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
+  const isEdited = Boolean(rawReactions._edited || row.is_edited);
+  delete rawReactions._edited;
+  delete rawReactions._deleted;
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    username: row.username,
+    avatarUrl: row.avatar_url,
+    content: row.content,
+    reactions: rawReactions,
+    createdAt: row.created_at,
+    isEdited,
+  };
 };
 
 const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ({} as Record<string, string | undefined>);
@@ -1361,6 +1439,481 @@ export const supabaseService = {
       return false;
     } catch (err) {
       console.warn('Supabase delete message error:', err);
+      return false;
+    }
+  },
+
+  async getChatGroups(viewer?: { id?: string; username?: string }): Promise<ChatGroup[]> {
+    const cleanUsername = viewer?.username?.replace(/^@/, '').trim() || '';
+
+    if (!isSupabaseConfigured()) {
+      const members = getLocalGroupMembers();
+      return getLocalChatGroups()
+        .map((group) => {
+          const isMember = Boolean(cleanUsername && members.some(
+            (member) => member.groupId === group.id && member.username.toLowerCase() === cleanUsername.toLowerCase()
+          ));
+          return {
+            ...group,
+            memberCount: Math.max(1, members.filter((member) => member.groupId === group.id).length),
+            isMember,
+          };
+        })
+        .filter((group) => !group.isPrivate || group.isMember || group.ownerUsername.toLowerCase() === cleanUsername.toLowerCase())
+        .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    }
+
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_groups?select=id,name,description,emoji,owner_id,owner_username,is_private,member_count,created_at,updated_at&order=updated_at.desc`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      if (res.ok) {
+        const rows = await res.json();
+        let memberGroupIds = new Set<string>();
+
+        if (cleanUsername) {
+          const memberRes = await fetch(
+            `${SUPABASE_URL}/rest/v1/chat_group_members?select=group_id&username=eq.${encodeURIComponent(cleanUsername)}`,
+            {
+              headers: {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              },
+            }
+          );
+          if (memberRes.ok) {
+            const memberRows = await memberRes.json();
+            memberGroupIds = new Set((memberRows || []).map((row: any) => row.group_id));
+          }
+        }
+
+        return (rows || [])
+          .map((row: any) => mapChatGroupRow(
+            row,
+            memberGroupIds.has(row.id) || row.owner_username?.toLowerCase() === cleanUsername.toLowerCase()
+          ))
+          .filter((group: ChatGroup) => !group.isPrivate || group.isMember || group.ownerUsername.toLowerCase() === cleanUsername.toLowerCase());
+      }
+    } catch (err) {
+      console.warn('Chat groups fetch warning:', err);
+    }
+
+    return getLocalChatGroups();
+  },
+
+  async createChatGroup(params: {
+    name: string;
+    description?: string;
+    emoji?: string;
+    ownerId?: string;
+    ownerUsername: string;
+    isPrivate?: boolean;
+  }): Promise<ChatGroup | null> {
+    const cleanName = params.name.trim().replace(/\s+/g, ' ').slice(0, 60);
+    const cleanUsername = params.ownerUsername.replace(/^@/, '').trim().slice(0, 50);
+    if (!cleanName || !cleanUsername) return null;
+
+    const localGroup: ChatGroup = {
+      id: `group_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: cleanName,
+      description: params.description?.trim().slice(0, 180) || '',
+      emoji: params.emoji || '💬',
+      ownerId: params.ownerId,
+      ownerUsername: cleanUsername,
+      isPrivate: Boolean(params.isPrivate),
+      memberCount: 1,
+      isMember: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const saveLocalGroup = (): ChatGroup => {
+      setLocalChatGroups([localGroup, ...getLocalChatGroups()]);
+      setLocalGroupMembers([
+        ...getLocalGroupMembers(),
+        { groupId: localGroup.id, userId: params.ownerId, username: cleanUsername, role: 'owner' },
+      ]);
+      return localGroup;
+    };
+
+    if (!isSupabaseConfigured()) return saveLocalGroup();
+
+    try {
+      const payload: Record<string, any> = {
+        name: cleanName,
+        description: localGroup.description || null,
+        emoji: localGroup.emoji,
+        owner_username: cleanUsername,
+        is_private: Boolean(params.isPrivate),
+        member_count: 1,
+      };
+      if (params.ownerId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.ownerId)) {
+        payload.owner_id = params.ownerId;
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/chat_groups`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const rows = await res.json();
+        if (rows?.[0]) {
+          const created = mapChatGroupRow(rows[0], true);
+          await this.joinChatGroup(created.id, {
+            userId: params.ownerId,
+            username: cleanUsername,
+            role: 'owner',
+          });
+          return created;
+        }
+      }
+    } catch (err) {
+      console.warn('Create chat group warning:', err);
+    }
+
+    return saveLocalGroup();
+  },
+
+  async joinChatGroup(
+    groupId: string,
+    member: { userId?: string; username: string; role?: 'owner' | 'member' }
+  ): Promise<boolean> {
+    const cleanUsername = member.username.replace(/^@/, '').trim().slice(0, 50);
+    if (!groupId || !cleanUsername) return false;
+
+    const existingLocalMembers = getLocalGroupMembers();
+    const alreadyMember = existingLocalMembers.some(
+      (item) => item.groupId === groupId && item.username.toLowerCase() === cleanUsername.toLowerCase()
+    );
+
+    if (!isSupabaseConfigured()) {
+      if (!alreadyMember) {
+        setLocalGroupMembers([
+          ...existingLocalMembers,
+          { groupId, userId: member.userId, username: cleanUsername, role: member.role || 'member' },
+        ]);
+        setLocalChatGroups(getLocalChatGroups().map((group) =>
+          group.id === groupId ? { ...group, memberCount: group.memberCount + 1, updatedAt: new Date().toISOString() } : group
+        ));
+      }
+      return true;
+    }
+
+    try {
+      const payload: Record<string, any> = {
+        group_id: groupId,
+        username: cleanUsername,
+        role: member.role || 'member',
+      };
+      if (member.userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(member.userId)) {
+        payload.user_id = member.userId;
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/chat_group_members`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=ignore-duplicates,return=minimal',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) return true;
+    } catch (err) {
+      console.warn('Join chat group warning:', err);
+    }
+    return false;
+  },
+
+  async leaveChatGroup(groupId: string, username: string): Promise<boolean> {
+    const cleanUsername = username.replace(/^@/, '').trim();
+    if (!groupId || !cleanUsername) return false;
+
+    if (!isSupabaseConfigured()) {
+      setLocalGroupMembers(getLocalGroupMembers().filter(
+        (member) => !(member.groupId === groupId && member.username.toLowerCase() === cleanUsername.toLowerCase())
+      ));
+      setLocalChatGroups(getLocalChatGroups().map((group) =>
+        group.id === groupId ? { ...group, memberCount: Math.max(1, group.memberCount - 1) } : group
+      ));
+      return true;
+    }
+
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_group_members?group_id=eq.${encodeURIComponent(groupId)}&username=eq.${encodeURIComponent(cleanUsername)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      return res.ok;
+    } catch (err) {
+      console.warn('Leave chat group warning:', err);
+      return false;
+    }
+  },
+
+  async getGroupChatMessages(groupId: string, limit: number = 100): Promise<ChatMessage[]> {
+    if (!groupId) return [];
+
+    if (!isSupabaseConfigured()) {
+      return getLocalGroupMessages()
+        .filter((message: any) => message.groupId === groupId && !(message.reactions as any)?._deleted)
+        .slice(-limit);
+    }
+
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?select=id,user_id,username,avatar_url,content,reactions,is_edited,created_at&group_id=eq.${encodeURIComponent(groupId)}&order=created_at.asc&limit=${limit}`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (res.ok) {
+        const rows = await res.json();
+        return (rows || [])
+          .filter((row: any) => !row.reactions?._deleted)
+          .map(mapGroupMessageRow);
+      }
+    } catch (err) {
+      console.warn('Group chat messages fetch warning:', err);
+    }
+    return [];
+  },
+
+  async syncGroupChatMessages(groupId: string, _existingCached: ChatMessage[] = []): Promise<ChatMessage[]> {
+    if (!isSupabaseConfigured()) return this.getGroupChatMessages(groupId);
+    return this.getGroupChatMessages(groupId);
+  },
+
+  async sendGroupChatMessage(params: {
+    groupId: string;
+    userId?: string;
+    username: string;
+    avatarUrl?: string;
+    content: string;
+  }): Promise<ChatMessage | null> {
+    const cleanContent = params.content.trim().slice(0, 1000);
+    const cleanUsername = params.username.replace(/^@/, '').trim();
+    if (!params.groupId || !cleanContent || !cleanUsername) return null;
+
+    const newMessage: ChatMessage & { groupId: string } = {
+      id: `group_msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      groupId: params.groupId,
+      userId: params.userId,
+      username: cleanUsername,
+      avatarUrl: params.avatarUrl,
+      content: cleanContent,
+      reactions: {},
+      createdAt: new Date().toISOString(),
+    };
+
+    if (!isSupabaseConfigured()) {
+      setLocalGroupMessages([...getLocalGroupMessages(), newMessage].slice(-500));
+      return newMessage;
+    }
+
+    try {
+      const payload: Record<string, any> = {
+        group_id: params.groupId,
+        username: cleanUsername,
+        avatar_url: params.avatarUrl || null,
+        content: cleanContent,
+        reactions: {},
+      };
+      if (params.userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.userId)) {
+        payload.user_id = params.userId;
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/group_chat_messages`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (rows?.[0]) return mapGroupMessageRow(rows[0]);
+      }
+    } catch (err) {
+      console.warn('Send group message warning:', err);
+    }
+
+    setLocalGroupMessages([...getLocalGroupMessages(), newMessage].slice(-500));
+    return newMessage;
+  },
+
+  async toggleGroupChatMessageReaction(messageId: string, emoji: string, username: string): Promise<ChatMessage | null> {
+    const cleanUser = username.replace(/^@/, '').trim();
+    if (!messageId || !emoji || !cleanUser) return null;
+
+    if (!isSupabaseConfigured()) {
+      const messages = getLocalGroupMessages();
+      const index = messages.findIndex((message) => message.id === messageId);
+      if (index < 0) return null;
+      const message = { ...messages[index], reactions: { ...(messages[index].reactions || {}) } };
+      const users = [...(message.reactions?.[emoji] || [])];
+      message.reactions = { ...(message.reactions || {}) };
+      if (users.includes(cleanUser)) {
+        const remaining = users.filter((user) => user !== cleanUser);
+        if (remaining.length) message.reactions[emoji] = remaining;
+        else delete message.reactions[emoji];
+      } else {
+        message.reactions[emoji] = [...users, cleanUser];
+      }
+      messages[index] = message;
+      setLocalGroupMessages(messages);
+      return message;
+    }
+
+    try {
+      const currentRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,reactions`,
+        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      if (!currentRes.ok) return null;
+      const rows = await currentRes.json();
+      if (!rows?.[0]) return null;
+      const reactions: Record<string, string[]> = { ...(rows[0].reactions || {}) };
+      const users = reactions[emoji] || [];
+      if (users.includes(cleanUser)) {
+        const remaining = users.filter((user) => user !== cleanUser);
+        if (remaining.length) reactions[emoji] = remaining;
+        else delete reactions[emoji];
+      } else reactions[emoji] = [...users, cleanUser];
+
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({ reactions }),
+        }
+      );
+      if (patchRes.ok) {
+        const updated = await patchRes.json();
+        if (updated?.[0]) return mapGroupMessageRow(updated[0]);
+      }
+    } catch (err) {
+      console.warn('Group reaction toggle warning:', err);
+    }
+    return null;
+  },
+
+  async editGroupChatMessage(messageId: string, newContent: string, username: string): Promise<ChatMessage | null> {
+    const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
+    const cleanContent = newContent.trim().slice(0, 1000);
+    if (!messageId || !cleanUser || !cleanContent) return null;
+
+    if (!isSupabaseConfigured()) {
+      const messages = getLocalGroupMessages();
+      const index = messages.findIndex((message) => message.id === messageId);
+      if (index < 0 || messages[index].username.toLowerCase() !== cleanUser || !getMessageActionStatus(messages[index].createdAt).canEditOrDelete) return null;
+      messages[index] = { ...messages[index], content: cleanContent, isEdited: true };
+      setLocalGroupMessages(messages);
+      return messages[index];
+    }
+
+    try {
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,username,reactions,created_at`,
+        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      if (!checkRes.ok) return null;
+      const rows = await checkRes.json();
+      const target = rows?.[0];
+      if (!target || target.username.toLowerCase() !== cleanUser || !getMessageActionStatus(target.created_at).canEditOrDelete) return null;
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({ content: cleanContent, is_edited: true }),
+        }
+      );
+      if (patchRes.ok) {
+        const updated = await patchRes.json();
+        if (updated?.[0]) return mapGroupMessageRow(updated[0]);
+      }
+    } catch (err) {
+      console.warn('Group message edit warning:', err);
+    }
+    return null;
+  },
+
+  async deleteGroupChatMessage(messageId: string, username: string): Promise<boolean> {
+    const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
+    if (!messageId || !cleanUser) return false;
+
+    if (!isSupabaseConfigured()) {
+      const messages = getLocalGroupMessages();
+      const target = messages.find((message) => message.id === messageId);
+      if (!target || target.username.toLowerCase() !== cleanUser || !getMessageActionStatus(target.createdAt).canEditOrDelete) return false;
+      setLocalGroupMessages(messages.filter((message) => message.id !== messageId));
+      return true;
+    }
+
+    try {
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}&select=id,username,reactions,created_at`,
+        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      if (!checkRes.ok) return false;
+      const rows = await checkRes.json();
+      const target = rows?.[0];
+      if (!target || target.username.toLowerCase() !== cleanUser || !getMessageActionStatus(target.created_at).canEditOrDelete) return false;
+
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ reactions: { ...(target.reactions || {}), _deleted: true } }),
+        }
+      );
+      return patchRes.ok;
+    } catch (err) {
+      console.warn('Group message delete warning:', err);
       return false;
     }
   },
