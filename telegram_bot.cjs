@@ -23,13 +23,13 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-const BOT_TOKEN = env.VITE_TELEGRAM_BOT_TOKEN;
+const BOT_TOKEN = env.TELEGRAM_BOT_TOKEN || env.VITE_TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = env.VITE_SUPABASE_ANON_KEY;
-const ADMIN_CHAT_ID = (env.VITE_TELEGRAM_ADMIN_CHAT_ID || '').trim();
+const ADMIN_CHAT_ID = (env.TELEGRAM_ADMIN_CHAT_ID || env.VITE_TELEGRAM_ADMIN_CHAT_ID || '').trim();
 
 if (!BOT_TOKEN) {
-  console.error('❌ Error: VITE_TELEGRAM_BOT_TOKEN not found in .env');
+  console.error('❌ Error: TELEGRAM_BOT_TOKEN (or VITE_TELEGRAM_BOT_TOKEN) not found in .env');
   process.exit(1);
 }
 
@@ -163,6 +163,89 @@ async function setStudentApproval(username, status, phoneNumber = null) {
   }
 }
 
+async function checkPendingStudentApprovals() {
+  if (!SUPABASE_URL || !SUPABASE_KEY || !ADMIN_CHAT_ID) return;
+
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/users?face_scan_status=eq.pending&telegram_message_id=is.null&select=*&limit=5`,
+      {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      }
+    );
+
+    if (!res.ok) return;
+    const pendingStudents = await res.json();
+    if (!pendingStudents || !Array.isArray(pendingStudents) || pendingStudents.length === 0) return;
+
+    for (const student of pendingStudents) {
+      const cleanUser = student.username ? student.username.replace(/^@/, '').trim() : 'student';
+      const cleanPhone = student.phone_number ? student.phone_number.trim() : 'N/A';
+      const photoUrl = student.face_scan_url;
+
+      const caption =
+        `🚨 *NEW STUDENT REGISTRATION - DEVCLASS MCA*\n\n` +
+        `👤 *Username:* @${cleanUser}\n` +
+        `📱 *Phone:* \`${cleanPhone}\`\n` +
+        `💬 *Bio:* _${student.catchphrase || 'No catchphrase'}_\n` +
+        `📅 *Time:* ${new Date(student.created_at || Date.now()).toLocaleTimeString()}\n\n` +
+        `🔒 *Status:* ⏳ *PENDING ADMIN APPROVAL*\n` +
+        `Account is currently restricted (cannot vote or reserve seats).\n` +
+        `Review the biometric face scan and tap below to approve or reject student participation.`;
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            { text: '✅ APPROVE STUDENT', callback_data: `approve:${cleanUser}:${cleanPhone}` },
+            { text: '❌ REJECT', callback_data: `reject:${cleanUser}:${cleanPhone}` },
+          ],
+        ],
+      };
+
+      let sentMsg = null;
+      if (photoUrl && photoUrl.startsWith('http')) {
+        sentMsg = await callTelegram('sendPhoto', {
+          chat_id: ADMIN_CHAT_ID,
+          photo: photoUrl,
+          caption: caption,
+          parse_mode: 'Markdown',
+          reply_markup: replyMarkup,
+        });
+      } else {
+        sentMsg = await callTelegram('sendMessage', {
+          chat_id: ADMIN_CHAT_ID,
+          text: caption,
+          parse_mode: 'Markdown',
+          reply_markup: replyMarkup,
+        });
+      }
+
+      const messageId = sentMsg?.result?.message_id ? String(sentMsg.result.message_id) : 'dispatched';
+
+      // Mark user with telegram_message_id to avoid duplicate dispatches
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(student.id)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ telegram_message_id: messageId }),
+        }
+      );
+
+      console.log(`📨 Dispatched approval alert to Admin for @${cleanUser} (Message ID: ${messageId})`);
+    }
+  } catch (err) {
+    console.error('Pending student check error:', err.message);
+  }
+}
+
 let offset = 0;
 
 async function pollUpdates() {
@@ -180,6 +263,9 @@ async function pollUpdates() {
 
   while (true) {
     try {
+      // Check and dispatch any newly submitted pending student registrations to the Admin
+      await checkPendingStudentApprovals();
+
       const data = await callTelegram('getUpdates', {
         offset: offset,
         timeout: 25,

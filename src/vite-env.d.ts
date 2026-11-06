@@ -3,8 +3,9 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
-  readonly VITE_TELEGRAM_BOT_TOKEN?: string;
-  readonly VITE_TELEGRAM_ADMIN_CHAT_ID?: string;
+  readonly VITE_GOOGLE_CLIENT_ID?: string;
+  readonly VITE_CLASSROOM_CODE?: string;
+  readonly VITE_DAILY_CUTOFF_HOUR?: string;
   readonly VITE_TELEGRAM_BOT_USERNAME?: string;
   readonly [key: string]: string | undefined;
 }
@@ -12,3 +13,4 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+

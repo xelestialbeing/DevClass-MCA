@@ -1,0 +1,92 @@
+name: Build, Test & Deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # ============================================================================
+  # STAGE 1: SMOKE TEST / SANITY CHECK
+  # Runs on GitHub's free cloud runner.
+  # If any error occurs here, the workflow STOPS immediately.
+  # The deployment stage will NEVER run, protecting your live server.
+  # ============================================================================
+  test:
+    name: Run Application Smoke Tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: 1. Checkout repository code
+        uses: actions/checkout@v4
+        with:
+          # Fetch depth 2 so we have access to the previous commit if needed for rollback
+          fetch-depth: 2
+
+      - name: 2. Set up Node.js runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci
+
+      # ------------------------------------------------------------------------
+      # "RUNNING WITHOUT ANY ERROR = TEST PASSES"
+      # In modern web apps, compiling TypeScript and bundling Vite acts as the
+      # ultimate smoke test: it catches syntax errors, broken imports, missing
+      # variables, shader errors, and invalid types without writing test suites.
+      # ------------------------------------------------------------------------
+      - name: 4. Test Frontend Build (tsc type-check + vite build)
+        run: npm run build
+
+      - name: 5. Test Backend Worker Syntax (node syntax check)
+        run: node -c telegram_bot.cjs
+
+      # ------------------------------------------------------------------------
+      # AUTOMATIC ROLLBACK TRIGGER (IF TESTS FAIL)
+      # This step ONLY runs if Step 4 or Step 5 fails (`if: failure()`).
+      # It alerts you and shows the exact previous working commit.
+      # ------------------------------------------------------------------------
+      - name: 6. Handle Test Failure & Rollback Notice
+        if: failure()
+        run: |
+          echo "::error::❌ Build/Test verification failed on commit ${{ github.sha }}!"
+          echo "🔒 Deployment has been BLOCKED. Live server remains safely on previous working state."
+          PREV_COMMIT=$(git rev-parse HEAD~1 2>/dev/null || echo "${{ github.event.before }}")
+          echo "⏪ Previous working commit is: $PREV_COMMIT"
+
+  # ============================================================================
+  # STAGE 2: DEPLOY TO SERVER (ONLY IF STAGE 1 PASSES)
+  # The `needs: [test]` directive ensures this job ONLY runs if `test` succeeded!
+  # ============================================================================
+  deploy:
+    name: Deploy to Production Server
+    needs: [test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 1. Deploy & Reload on 34.68.33.40 via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: 34.68.33.40
+          username: airdrop-admin
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/DevClass-MCA
+            
+            # 1. Pull verified passing code from main
+            git pull origin main
+            
+            # 2. Recompile frontend with production environment variables
+            npm ci
+            npm run build
+            
+            # 3. Reload ONLY the college bot (does NOT touch airdrop-app or price-tracker-bot!)
+            pm2 restart college-bot || pm2 start telegram_bot.cjs --name "college-bot"
+            
+            echo "🎉 DevClass-MCA successfully updated on devclassmca.celestialbeing.space!"

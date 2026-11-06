@@ -31,8 +31,6 @@ export interface ChatMessage {
 const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ({} as Record<string, string | undefined>);
 const SUPABASE_URL = env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || '';
-const TELEGRAM_BOT_TOKEN = env.VITE_TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_ADMIN_CHAT_ID = env.VITE_TELEGRAM_ADMIN_CHAT_ID || '';
 export const TELEGRAM_BOT_USERNAME = String(
   env.VITE_TELEGRAM_BOT_USERNAME || ''
 ).replace(/^@/, '').trim();
@@ -282,64 +280,15 @@ export const supabaseService = {
   },
 
   // 3. Dispatch Verification Request to Telegram Bot
-  async notifyTelegramAdmin(payload: {
+  // Handled securely by the backend server worker (telegram_bot.cjs) to prevent token leaks
+  async notifyTelegramAdmin(_payload: {
     username: string;
     phoneNumber: string;
     catchphrase: string;
     faceScanBase64: string;
   }): Promise<boolean> {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_ADMIN_CHAT_ID) {
-      console.info(
-        'Telegram Bot Token or Admin Chat ID not yet set in .env. Skipping Telegram push.'
-      );
-      return false;
-    }
-
-    try {
-      const blob = await (await fetch(payload.faceScanBase64)).blob();
-      const formData = new FormData();
-      formData.append('chat_id', TELEGRAM_ADMIN_CHAT_ID);
-      formData.append('photo', blob, 'face_scan.jpg');
-      const cleanUser = payload.username.replace(/^@/, '').trim();
-      const cleanPhone = payload.phoneNumber.trim();
-
-      formData.append(
-        'caption',
-        `🚨 *NEW STUDENT REGISTRATION - DEVCLASS MCA*\n\n` +
-        `👤 *Username:* @${cleanUser}\n` +
-        `📱 *Phone:* \`${cleanPhone}\`\n` +
-        `💬 *Bio:* _${payload.catchphrase || 'No catchphrase'}_\n` +
-        `📅 *Time:* ${new Date().toLocaleTimeString()}\n\n` +
-        `🔒 *Status:* ⏳ *PENDING ADMIN APPROVAL*\n` +
-        `Account is currently restricted (cannot vote or reserve seats).\n` +
-        `Review the biometric face scan above and tap below to approve or reject student participation.`
-      );
-      formData.append('parse_mode', 'Markdown');
-      formData.append(
-        'reply_markup',
-        JSON.stringify({
-          inline_keyboard: [
-            [
-              { text: '✅ APPROVE STUDENT', callback_data: `approve:${cleanUser}:${cleanPhone}` },
-              { text: '❌ REJECT', callback_data: `reject:${cleanUser}:${cleanPhone}` },
-            ],
-          ],
-        })
-      );
-
-      const tgRes = await fetch(
-        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-
-      return tgRes.ok;
-    } catch (err) {
-      console.error('Failed to dispatch alert to Telegram Bot:', err);
-      return false;
-    }
+    // Intentionally delegated to backend worker to ensure bot credentials stay strictly server-side
+    return true;
   },
 
   // 4. Complete Full Sign Up with Biometric Face ID (Mandatory for record) & Optional Avatar
