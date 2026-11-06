@@ -1078,6 +1078,11 @@
   color: #ffffff;
 }
 
+/* Mobile-only action drawer backdrop (hidden on desktop) */
+.mobile-action-sheet-backdrop {
+  display: none;
+}
+
 /* ==============================================================================
    4. PILL INPUT COMPOSER
    ============================================================================== */

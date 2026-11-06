@@ -1946,7 +1946,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
               <div className="seat-sheet-grid-container">
                 {/* Left Bank: 5 columns x 5 rows = Seats 1 to 25 */}
                 <div className="seat-sheet-bank left">
-                  <div className="seat-sheet-bank-label">LEFT WING (SEATS 01-25)</div>
+                  <div className="seat-sheet-bank-label">LEFT WING (01-25)</div>
                   <div className="seat-sheet-cells-grid left">
                     {Array.from({ length: 25 }, (_, i) => i + 1).map((sNum) => {
                       const occupant = votes.find((v) => v.seatNumber === sNum);
@@ -1991,7 +1991,7 @@ export const Classroom3D: React.FC<Classroom3DProps> = ({
 
                 {/* Right Bank: 4 columns x 5 rows = Seats 26 to 45 + Seat 46 Back Aisle */}
                 <div className="seat-sheet-bank right">
-                  <div className="seat-sheet-bank-label">RIGHT WING (SEATS 26-46)</div>
+                  <div className="seat-sheet-bank-label">RIGHT WING (26-46)</div>
                   <div className="seat-sheet-cells-grid right">
                     {Array.from({ length: 21 }, (_, i) => i + 26).map((sNum) => {
                       const occupant = votes.find((v) => v.seatNumber === sNum);
