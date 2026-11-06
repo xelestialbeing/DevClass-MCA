@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ChatMessage, UserProfile, supabaseService, getMessageActionStatus } from '../lib/supabase';
+import {
+  ChatMessage,
+  UserProfile,
+  supabaseService,
+  getMessageActionStatus,
+  getCachedChatMessages,
+  setCachedChatMessages,
+} from '../lib/supabase';
 import { ProfileModal } from './ProfileModal';
 import './GlobalChat.css';
 
@@ -29,7 +36,8 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   isApproved,
   onSelectSeat,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Pre-load from user-side cache on mount (instant 0ms display on page refresh without waiting for server)
+  const [messages, setMessages] = useState<ChatMessage[]>(() => getCachedChatMessages());
   const [inputText, setInputText] = useState('');
   const [isDispatchingAnim, setIsDispatchingAnim] = useState(false);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
@@ -42,6 +50,8 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  messagesRef.current = messages;
 
   const currentUsername = currentUser?.username ? currentUser.username.replace(/^@/, '').trim() : '';
 
@@ -105,13 +115,14 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [isOpen]);
 
-  // Fetch messages with smart merge (prevents overwriting in-flight optimistic messages)
+  // Fetch messages with client-side cache & smart delta sync
+  // Uses local cache on refresh so old history is never re-downloaded
   useEffect(() => {
     if (!isOpen) return;
 
     let isMounted = true;
     const fetchMessages = async () => {
-      const data = await supabaseService.getChatMessages(80);
+      const data = await supabaseService.syncChatMessages(messagesRef.current);
       if (!isMounted) return;
 
       setMessages((prev) => {
@@ -121,14 +132,18 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
         if (
           inFlight.length === 0 &&
           prev.length === data.length &&
-          prev[prev.length - 1]?.id === data[data.length - 1]?.id
+          prev[prev.length - 1]?.id === data[data.length - 1]?.id &&
+          prev[prev.length - 1]?.content === data[data.length - 1]?.content &&
+          JSON.stringify(prev[prev.length - 1]?.reactions) === JSON.stringify(data[data.length - 1]?.reactions)
         ) {
           return prev;
         }
 
         const confirmedIds = new Set(data.map((d) => d.id));
         const stillPending = inFlight.filter((opt) => !confirmedIds.has(opt.id));
-        return [...data, ...stillPending];
+        const merged = [...data, ...stillPending];
+        setCachedChatMessages(merged);
+        return merged;
       });
     };
 

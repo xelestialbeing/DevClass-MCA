@@ -48,6 +48,30 @@ export const getMessageActionStatus = (createdAt: string): { canEditOrDelete: bo
   }
 };
 
+// Client-side chat caching (holds messages in localStorage so refreshes load in 0ms without re-fetching old history)
+export const CHAT_CACHE_KEY = 'college_chat_cache';
+
+export const getCachedChatMessages = (): ChatMessage[] => {
+  try {
+    const raw = localStorage.getItem(CHAT_CACHE_KEY) || localStorage.getItem('college_chat_messages');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return [];
+};
+
+export const setCachedChatMessages = (messages: ChatMessage[]): void => {
+  try {
+    // Only cache non-temporary confirmed messages, max 120 messages
+    const valid = messages.filter((m) => !m.id.startsWith('temp_')).slice(-120);
+    localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(valid));
+  } catch {}
+};
+
 const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ({} as Record<string, string | undefined>);
 const SUPABASE_URL = env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || '';
@@ -788,13 +812,7 @@ export const supabaseService = {
 
   async getChatMessages(limit: number = 60): Promise<ChatMessage[]> {
     if (!isSupabaseConfigured()) {
-      try {
-        const stored = localStorage.getItem('college_chat_messages');
-        if (stored) {
-          return JSON.parse(stored);
-        }
-      } catch {}
-      return [];
+      return getCachedChatMessages();
     }
 
     try {
@@ -810,7 +828,7 @@ export const supabaseService = {
 
       if (res.ok) {
         const data = await res.json();
-        return (data || []).map((row: any) => {
+        const parsed: ChatMessage[] = (data || []).map((row: any) => {
           const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
           const isEdited = Boolean(rawReactions._edited || row.is_edited);
           delete rawReactions._edited;
@@ -827,16 +845,91 @@ export const supabaseService = {
             isEdited,
           };
         });
+
+        // Save fresh history to user-side cache
+        setCachedChatMessages(parsed);
+        return parsed;
       }
     } catch (err) {
       console.warn('Chat messages fetch warning:', err);
     }
 
+    return getCachedChatMessages();
+  },
+
+  /**
+   * Delta Sync Chat Messages:
+   * Uses client-side cache so on refresh the user sees messages instantly (0ms).
+   * It only fetches messages from the active window (last 30 mins) where new messages,
+   * edits, reactions, or deletions can occur. Older history is NEVER re-downloaded.
+   */
+  async syncChatMessages(existingCached: ChatMessage[] = []): Promise<ChatMessage[]> {
+    const cached = existingCached.length > 0 ? existingCached : getCachedChatMessages();
+
+    if (!isSupabaseConfigured()) {
+      return cached;
+    }
+
     try {
-      const stored = localStorage.getItem('college_chat_messages');
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    return [];
+      // 1. If cache is empty, do a clean initial load
+      if (cached.length === 0) {
+        return this.getChatMessages(60);
+      }
+
+      // 2. Active Window: messages older than 30m are immutable.
+      // We only query messages created within the active 30-minute window.
+      const newestTime = cached[cached.length - 1]?.createdAt;
+      const newestTimestamp = newestTime ? new Date(newestTime).getTime() : Date.now();
+      const windowStart = new Date(Math.min(Date.now(), newestTimestamp) - (30 * 60 * 1000)).toISOString();
+
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&created_at=gte.${encodeURIComponent(windowStart)}&order=created_at.asc`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        const activeDelta: ChatMessage[] = (data || []).map((row: any) => {
+          const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
+          const isEdited = Boolean(rawReactions._edited || row.is_edited);
+          delete rawReactions._edited;
+
+          return {
+            id: row.id,
+            userId: row.user_id,
+            username: row.username,
+            avatarUrl: row.avatar_url,
+            seatNumber: row.seat_number,
+            content: row.content,
+            reactions: rawReactions,
+            createdAt: row.created_at,
+            isEdited,
+          };
+        });
+
+        // Keep immutable messages created before windowStart
+        const windowStartTime = new Date(windowStart).getTime();
+        const immutableHistory = cached.filter((m) => {
+          const t = new Date(m.createdAt).getTime();
+          return !isNaN(t) && t < windowStartTime && !m.id.startsWith('temp_');
+        });
+
+        const merged = [...immutableHistory, ...activeDelta];
+        merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        setCachedChatMessages(merged);
+        return merged;
+      }
+    } catch (err) {
+      console.warn('Sync chat messages warning:', err);
+    }
+
+    return cached;
   },
 
   async sendChatMessage(params: {
@@ -893,7 +986,7 @@ export const supabaseService = {
       if (res.ok) {
         const createdRows = await res.json();
         if (createdRows && createdRows[0]) {
-          return {
+          const confirmed: ChatMessage = {
             id: createdRows[0].id,
             userId: createdRows[0].user_id,
             username: createdRows[0].username,
@@ -903,6 +996,9 @@ export const supabaseService = {
             reactions: createdRows[0].reactions || {},
             createdAt: createdRows[0].created_at,
           };
+          const currentCached = getCachedChatMessages().filter((m) => m.id !== confirmed.id);
+          setCachedChatMessages([...currentCached, confirmed]);
+          return confirmed;
         }
       }
     } catch (err) {
@@ -996,7 +1092,7 @@ export const supabaseService = {
       if (patchRes.ok) {
         const updatedRows = await patchRes.json();
         if (updatedRows && updatedRows[0]) {
-          return {
+          const updatedMsg: ChatMessage = {
             id: updatedRows[0].id,
             userId: updatedRows[0].user_id,
             username: updatedRows[0].username,
@@ -1006,6 +1102,11 @@ export const supabaseService = {
             reactions: updatedRows[0].reactions || {},
             createdAt: updatedRows[0].created_at,
           };
+          const updatedCache = getCachedChatMessages().map((m) =>
+            m.id === messageId ? { ...m, reactions: updatedMsg.reactions } : m
+          );
+          setCachedChatMessages(updatedCache);
+          return updatedMsg;
         }
       }
     } catch (err) {
@@ -1094,7 +1195,7 @@ export const supabaseService = {
         if (updated && updated[0]) {
           const cleanReactions = { ...(updated[0].reactions || {}) };
           delete cleanReactions._edited;
-          return {
+          const editedMsg: ChatMessage = {
             id: updated[0].id,
             userId: updated[0].user_id,
             username: updated[0].username,
@@ -1105,6 +1206,11 @@ export const supabaseService = {
             createdAt: updated[0].created_at,
             isEdited: true,
           };
+          const updatedCache = getCachedChatMessages().map((m) =>
+            m.id === messageId ? editedMsg : m
+          );
+          setCachedChatMessages(updatedCache);
+          return editedMsg;
         }
       }
     } catch (err) {
@@ -1174,7 +1280,12 @@ export const supabaseService = {
         }
       );
 
-      return delRes.ok;
+      if (delRes.ok) {
+        const updatedCache = getCachedChatMessages().filter((m) => m.id !== messageId);
+        setCachedChatMessages(updatedCache);
+        return true;
+      }
+      return false;
     } catch (err) {
       console.warn('Supabase delete message error:', err);
       return false;
