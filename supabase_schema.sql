@@ -275,6 +275,81 @@ CREATE TRIGGER trg_protect_chat_message_edits
     BEFORE UPDATE ON public.chat_messages
     FOR EACH ROW
     EXECUTE FUNCTION public.protect_chat_message_edits();
+-- 10. Student-created Group Chats
+-- Public groups are discoverable by every approved student. Private groups remain
+-- visible to their owner or members once an invitation flow is added.
+CREATE TABLE IF NOT EXISTS public.chat_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(60) NOT NULL,
+    description VARCHAR(180),
+    emoji VARCHAR(8) NOT NULL DEFAULT '💬',
+    owner_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    owner_username VARCHAR(50) NOT NULL,
+    is_private BOOLEAN NOT NULL DEFAULT FALSE,
+    member_count INT NOT NULL DEFAULT 1 CHECK (member_count >= 1),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.chat_group_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID NOT NULL REFERENCES public.chat_groups(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+    username VARCHAR(50) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE (group_id, username)
+);
+
+CREATE TABLE IF NOT EXISTS public.group_chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID NOT NULL REFERENCES public.chat_groups(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    username VARCHAR(50) NOT NULL,
+    avatar_url TEXT,
+    content TEXT NOT NULL,
+    reactions JSONB DEFAULT '{}'::jsonb,
+    is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_groups_updated_at ON public.chat_groups (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_group_members_group_id ON public.chat_group_members (group_id);
+CREATE INDEX IF NOT EXISTS idx_group_chat_messages_group_created ON public.group_chat_messages (group_id, created_at ASC);
+
+ALTER TABLE public.chat_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_group_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.group_chat_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read chat_groups" ON public.chat_groups;
+CREATE POLICY "Allow public read chat_groups" ON public.chat_groups FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow approved students create chat_groups" ON public.chat_groups;
+CREATE POLICY "Allow approved students create chat_groups" ON public.chat_groups FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public update chat_groups" ON public.chat_groups;
+CREATE POLICY "Allow public update chat_groups" ON public.chat_groups FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read chat_group_members" ON public.chat_group_members;
+CREATE POLICY "Allow public read chat_group_members" ON public.chat_group_members FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow approved students join chat_groups" ON public.chat_group_members;
+CREATE POLICY "Allow approved students join chat_groups" ON public.chat_group_members FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow members leave chat_groups" ON public.chat_group_members;
+CREATE POLICY "Allow members leave chat_groups" ON public.chat_group_members FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "Allow public read group_chat_messages" ON public.group_chat_messages;
+CREATE POLICY "Allow public read group_chat_messages" ON public.group_chat_messages FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow group members send messages" ON public.group_chat_messages;
+CREATE POLICY "Allow group members send messages" ON public.group_chat_messages FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public update group_chat_messages" ON public.group_chat_messages;
+CREATE POLICY "Allow public update group_chat_messages" ON public.group_chat_messages FOR UPDATE USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public delete group_chat_messages" ON public.group_chat_messages;
+CREATE POLICY "Allow public delete group_chat_messages" ON public.group_chat_messages FOR DELETE USING (true);
 
 
 

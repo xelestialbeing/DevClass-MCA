@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChatMessage,
+  ChatGroup,
   UserProfile,
   supabaseService,
   getMessageActionStatus,
@@ -38,6 +39,9 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 }) => {
   // Pre-load from user-side cache on mount (instant 0ms display on page refresh without waiting for server)
   const [messages, setMessages] = useState<ChatMessage[]>(() => getCachedChatMessages());
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [groupMessages, setGroupMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isDispatchingAnim, setIsDispatchingAnim] = useState(false);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
@@ -46,12 +50,21 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const [inspectProfileUser, setInspectProfileUser] = useState<UserProfile | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<ChatMessage | null>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDescription, setNewGroupDescription] = useState('');
+  const [newGroupEmoji, setNewGroupEmoji] = useState('💬');
+  const [newGroupPrivate, setNewGroupPrivate] = useState(false);
+  const [groupFormError, setGroupFormError] = useState('');
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
   messagesRef.current = messages;
+  const groupMessagesRef = useRef<ChatMessage[]>(groupMessages);
+  groupMessagesRef.current = groupMessages;
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleTouchStartMessage = (msgId: string) => {
@@ -71,6 +84,15 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   };
 
   const currentUsername = currentUser?.username ? currentUser.username.replace(/^@/, '').trim() : '';
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === activeGroupId) || null,
+    [groups, activeGroupId]
+  );
+  const activeMessages = activeGroupId ? groupMessages : messages;
+  const activeConversationTitle = activeGroup?.name || 'DevClass MCA';
+  const activeConversationSubtitle = activeGroup
+    ? `${activeGroup.memberCount} ${activeGroup.memberCount === 1 ? 'member' : 'members'}`
+    : '46 Students';
 
   const activeReactionMsg = useMemo(
     () => messages.find((m) => m.id === activeReactionMsgId) || null,
@@ -80,7 +102,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   // Classmates active in conversation for the Details inspector
   const uniqueClassmates = useMemo(() => {
     const map = new Map<string, { username: string; avatarUrl?: string; userId?: string; seatNumber?: number | null }>();
-    messages.forEach((m) => {
+    activeMessages.forEach((m) => {
       const uname = m.username.replace(/^@/, '').trim();
       if (!map.has(uname.toLowerCase())) {
         map.set(uname.toLowerCase(), {
@@ -92,7 +114,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       }
     });
     return Array.from(map.values());
-  }, [messages]);
+  }, [activeMessages]);
 
   // Open full student profile on avatar/username click
   const handleOpenUserProfile = async (username: string, avatarUrl?: string, userId?: string) => {
@@ -137,10 +159,27 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [isOpen]);
 
+  // Load discoverable groups whenever the chat workspace opens.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isMounted = true;
+    const loadGroups = () => supabaseService.getChatGroups({ id: currentUser?.id, username: currentUsername }).then((loadedGroups) => {
+      if (isMounted) setGroups(loadedGroups);
+    });
+    loadGroups();
+    const interval = setInterval(loadGroups, 10000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isOpen, currentUser?.id, currentUsername]);
+
   // Fetch messages with client-side cache & smart delta sync
   // Uses local cache on refresh so old history is never re-downloaded
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || activeGroupId) return;
 
     let isMounted = true;
     const fetchMessages = async () => {
@@ -176,14 +215,36 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isOpen]);
+  }, [isOpen, activeGroupId]);
+
+  // Group conversations use the same live polling rhythm as the global room.
+  useEffect(() => {
+    if (!isOpen || !activeGroupId) {
+      if (!activeGroupId) setGroupMessages([]);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchGroupMessages = async () => {
+      const data = await supabaseService.syncGroupChatMessages(activeGroupId, groupMessagesRef.current);
+      if (isMounted) setGroupMessages(data);
+    };
+
+    fetchGroupMessages();
+    const interval = setInterval(fetchGroupMessages, 1800);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isOpen, activeGroupId]);
 
   // Auto-scroll to latest message
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages.length, isOpen]);
+  }, [activeMessages.length, isOpen, activeGroupId]);
 
   // Handle keyboard escape to exit
   useEffect(() => {
@@ -193,6 +254,9 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       if (e.key === 'Escape') {
         if (messageToDelete) {
           setMessageToDelete(null);
+        } else if (showCreateGroup) {
+          setShowCreateGroup(false);
+          setGroupFormError('');
         } else if (editingMessage) {
           handleCancelEdit();
         } else if (showInfoSheet) {
@@ -207,7 +271,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showInfoSheet, activeReactionMsgId, editingMessage, messageToDelete]);
+  }, [isOpen, onClose, showInfoSheet, activeReactionMsgId, editingMessage, messageToDelete, showCreateGroup]);
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -216,6 +280,82 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 100)}px`;
     }
   }, [inputText]);
+
+  const handleSelectConversation = async (groupId: string | null) => {
+    setActiveGroupId(groupId);
+    setSearchQuery('');
+    setShowInfoSheet(false);
+    setActiveReactionMsgId(null);
+    handleCancelEdit();
+
+    if (!groupId || !currentUsername) return;
+    const group = groups.find((item) => item.id === groupId);
+    if (!group || group.isMember) return;
+
+    const joined = await supabaseService.joinChatGroup(groupId, {
+      userId: currentUser?.id,
+      username: currentUsername,
+    });
+    if (joined) {
+      setGroups((previous) => previous.map((item) => (
+        item.id === groupId
+          ? { ...item, isMember: true, memberCount: item.memberCount + 1 }
+          : item
+      )));
+    }
+  };
+
+  const handleCreateGroup = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isApproved || !currentUsername) return;
+
+    const name = newGroupName.trim();
+    if (name.length < 2) {
+      setGroupFormError('Give your group a name with at least 2 characters.');
+      return;
+    }
+
+    setIsCreatingGroup(true);
+    setGroupFormError('');
+    const created = await supabaseService.createChatGroup({
+      name,
+      description: newGroupDescription,
+      emoji: newGroupEmoji,
+      ownerId: currentUser?.id,
+      ownerUsername: currentUsername,
+      isPrivate: newGroupPrivate,
+    });
+    setIsCreatingGroup(false);
+
+    if (!created) {
+      setGroupFormError('The group could not be created. Please try again.');
+      return;
+    }
+
+    setGroups((previous) => [created, ...previous.filter((group) => group.id !== created.id)]);
+    setShowCreateGroup(false);
+    setNewGroupName('');
+    setNewGroupDescription('');
+    setNewGroupEmoji('💬');
+    setNewGroupPrivate(false);
+    setGroupFormError('');
+    setActiveGroupId(created.id);
+  };
+
+  const handleLeaveActiveGroup = async () => {
+    if (!activeGroupId || !activeGroup || !currentUsername) return;
+    if (activeGroup.ownerUsername.toLowerCase() === currentUsername.toLowerCase()) {
+      alert('The group owner cannot leave yet. Transfer ownership or delete the group from a future group settings panel.');
+      return;
+    }
+
+    const left = await supabaseService.leaveChatGroup(activeGroupId, currentUsername);
+    if (left) {
+      setGroups((previous) => previous.filter((group) => group.id !== activeGroupId));
+      setActiveGroupId(null);
+      setGroupMessages([]);
+    }
+  };
 
   // Start editing a message within the 15-30 min window
   const handleStartEdit = (msg: ChatMessage) => {
@@ -253,8 +393,13 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
     const targetId = msg.id;
     // 1. Optimistic removal in 0ms & immediate ref synchronization
-    setMessages((prev) => prev.filter((m) => m.id !== targetId));
-    messagesRef.current = messagesRef.current.filter((m) => m.id !== targetId);
+    if (activeGroupId) {
+      setGroupMessages((prev) => prev.filter((m) => m.id !== targetId));
+      groupMessagesRef.current = groupMessagesRef.current.filter((m) => m.id !== targetId);
+    } else {
+      setMessages((prev) => prev.filter((m) => m.id !== targetId));
+      messagesRef.current = messagesRef.current.filter((m) => m.id !== targetId);
+    }
     setMessageToDelete(null);
     setActiveReactionMsgId(null);
 
@@ -263,7 +408,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
 
     // 2. Persist deletion in background
-    await supabaseService.deleteChatMessage(targetId, currentUsername);
+    if (activeGroupId) {
+      await supabaseService.deleteGroupChatMessage(targetId, currentUsername);
+    } else {
+      await supabaseService.deleteChatMessage(targetId, currentUsername);
+    }
   };
 
   // Instant Optimistic Message Dispatch & Update (0ms UI latency with tactile spring animations)
@@ -295,17 +444,22 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       setTimeout(() => setIsDispatchingAnim(false), 360);
 
       // Optimistic inline update in 0ms
-      setMessages((prev) =>
-        prev.map((m) => (m.id === targetId ? { ...m, content: text, isEdited: true } : m))
-      );
+      const updateMessages = (previous: ChatMessage[]) =>
+        previous.map((m) => (m.id === targetId ? { ...m, content: text, isEdited: true } : m));
+      if (activeGroupId) setGroupMessages(updateMessages);
+      else setMessages(updateMessages);
       handleCancelEdit();
 
       // Persist in background
-      supabaseService.editChatMessage(targetId, text, currentUsername).then((confirmed) => {
+      const editRequest = activeGroupId
+        ? supabaseService.editGroupChatMessage(targetId, text, currentUsername)
+        : supabaseService.editChatMessage(targetId, text, currentUsername);
+      editRequest.then((confirmed) => {
         if (confirmed) {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === targetId ? confirmed : m))
-          );
+          const replaceMessage = (previous: ChatMessage[]) =>
+            previous.map((m) => (m.id === targetId ? confirmed : m));
+          if (activeGroupId) setGroupMessages(replaceMessage);
+          else setMessages(replaceMessage);
         }
       }).catch((err) => {
         console.warn('Failed to persist edit:', err);
@@ -332,7 +486,8 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     };
 
     // 3. Append to state instantly and clear input
-    setMessages((prev) => [...prev, optimisticMsg]);
+    if (activeGroupId) setGroupMessages((prev) => [...prev, optimisticMsg]);
+    else setMessages((prev) => [...prev, optimisticMsg]);
     setInputText('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
@@ -342,18 +497,28 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }, 20);
 
     // 5. Asynchronously persist to Supabase in background
-    supabaseService.sendChatMessage({
-      userId,
-      username,
-      avatarUrl,
-      seatNumber: mySeat,
-      content: text,
-    }).then((confirmed) => {
+    const sendRequest = activeGroupId
+      ? supabaseService.sendGroupChatMessage({
+          groupId: activeGroupId,
+          userId,
+          username,
+          avatarUrl,
+          content: text,
+        })
+      : supabaseService.sendChatMessage({
+          userId,
+          username,
+          avatarUrl,
+          seatNumber: mySeat,
+          content: text,
+        });
+    sendRequest.then((confirmed) => {
       if (confirmed) {
         // Swap temp ID with the real database record
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? confirmed : m))
-        );
+        const replaceMessage = (previous: ChatMessage[]) =>
+          previous.map((m) => (m.id === tempId ? confirmed : m));
+        if (activeGroupId) setGroupMessages(replaceMessage);
+        else setMessages(replaceMessage);
       }
     }).catch((err) => {
       console.warn('Message dispatch failed:', err);
@@ -376,26 +541,27 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     setActiveReactionMsgId(null);
 
     // Optimistic UI update
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.id !== messageId) return msg;
-        const currentReactions: Record<string, string[]> = { ...(msg.reactions || {}) };
-        const users = currentReactions[emoji] ? [...currentReactions[emoji]] : [];
-        if (users.includes(currentUsername)) {
-          const filtered = users.filter((u) => u !== currentUsername);
-          if (filtered.length === 0) {
-            delete currentReactions[emoji];
-          } else {
-            currentReactions[emoji] = filtered;
-          }
-        } else {
-          currentReactions[emoji] = [...users, currentUsername];
-        }
-        return { ...msg, reactions: currentReactions };
-      })
-    );
+    const updateReactions = (previous: ChatMessage[]) => previous.map((msg) => {
+      if (msg.id !== messageId) return msg;
+      const currentReactions: Record<string, string[]> = { ...(msg.reactions || {}) };
+      const users = currentReactions[emoji] ? [...currentReactions[emoji]] : [];
+      if (users.includes(currentUsername)) {
+        const filtered = users.filter((u) => u !== currentUsername);
+        if (filtered.length === 0) delete currentReactions[emoji];
+        else currentReactions[emoji] = filtered;
+      } else {
+        currentReactions[emoji] = [...users, currentUsername];
+      }
+      return { ...msg, reactions: currentReactions };
+    });
+    if (activeGroupId) setGroupMessages(updateReactions);
+    else setMessages(updateReactions);
 
-    await supabaseService.toggleChatMessageReaction(messageId, emoji, currentUsername);
+    if (activeGroupId) {
+      await supabaseService.toggleGroupChatMessageReaction(messageId, emoji, currentUsername);
+    } else {
+      await supabaseService.toggleChatMessageReaction(messageId, emoji, currentUsername);
+    }
   };
 
   const formatMessageTime = (dateStr: string): string => {
@@ -428,12 +594,12 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   };
 
   const filteredMessages = searchQuery.trim()
-    ? messages.filter(
+    ? activeMessages.filter(
         (m) =>
           m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
           m.username.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : messages;
+    : activeMessages;
 
   const latestMessagePreview = messages.length > 0 ? messages[messages.length - 1] : null;
 
@@ -491,7 +657,12 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
         {/* Conversation List */}
         <div className="sidebar-threads-list">
-          <div className="sidebar-thread-cell active">
+          <div
+            className={`sidebar-thread-cell ${!activeGroupId ? 'active' : ''}`}
+            onClick={() => handleSelectConversation(null)}
+            role="button"
+            tabIndex={0}
+          >
             <div className="thread-avatar-icon">
               <span>🎓</span>
             </div>
@@ -512,6 +683,53 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               </p>
             </div>
           </div>
+
+          <div className="sidebar-section-heading">
+            <span>GROUP CHATS</span>
+            <button
+              type="button"
+              className="sidebar-create-group-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                setGroupFormError('');
+                setShowCreateGroup(true);
+              }}
+              aria-label="Create a group chat"
+              title="Create a group chat"
+            >
+              <span>＋</span> Create
+            </button>
+          </div>
+
+          {groups.length === 0 ? (
+            <div className="sidebar-empty-groups">
+              <span className="sidebar-empty-icon">✦</span>
+              <span>Create a study circle, project room, or hangout.</span>
+            </div>
+          ) : (
+            groups.map((group) => (
+              <div
+                key={group.id}
+                className={`sidebar-thread-cell group-thread ${activeGroupId === group.id ? 'active' : ''}`}
+                onClick={() => handleSelectConversation(group.id)}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="thread-avatar-icon group-avatar-icon">
+                  <span>{group.emoji}</span>
+                </div>
+                <div className="thread-cell-info">
+                  <div className="thread-top-line">
+                    <span className="thread-name">{group.name}</span>
+                    {group.isMember && <span className="thread-member-mark">✓</span>}
+                  </div>
+                  <p className="thread-preview-text">
+                    {group.description || `${group.memberCount} ${group.memberCount === 1 ? 'member' : 'members'} · ${group.isPrivate ? 'Private' : 'Open to classmates'}`}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Student Desk Status Card */}
@@ -596,12 +814,26 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <span>🎓</span>
             </div>
             <div className="navbar-text-group">
-              <span className="navbar-main-title">DevClass MCA</span>
-              <span className="navbar-sub-status">46 Students</span>
+              <span className="navbar-main-title">{activeConversationTitle}</span>
+              <span className="navbar-sub-status">{activeConversationSubtitle}</span>
             </div>
           </div>
 
           <div className="navbar-right-cluster">
+            {isApproved && (
+              <button
+                type="button"
+                className="navbar-create-group-btn"
+                onClick={() => {
+                  setGroupFormError('');
+                  setShowCreateGroup(true);
+                }}
+                title="Create a group chat"
+                aria-label="Create a group chat"
+              >
+                <span>＋</span>
+              </button>
+            )}
             {currentUser && (
               <button
                 type="button"
@@ -646,9 +878,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <div className="welcome-avatar-bubble">
                 <span>🎓</span>
               </div>
-              <h2 className="welcome-headline">DevClass MCA</h2>
+              <h2 className="welcome-headline">{activeConversationTitle}</h2>
               <p className="welcome-subline">
-                No messages yet. Send a message to your classmates to start the conversation.
+                {activeGroup
+                  ? 'No messages yet. Say hello and make this group your own space.'
+                  : 'No messages yet. Send a message to your classmates to start the conversation.'}
               </p>
             </div>
           ) : (
@@ -945,8 +1179,12 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <button
                 type="button"
                 className="composer-add-btn"
-                title="Options"
-                aria-label="Add options"
+                title="Create a group chat"
+                aria-label="Create a group chat"
+                onClick={() => {
+                  setGroupFormError('');
+                  setShowCreateGroup(true);
+                }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19" />
@@ -1018,9 +1256,29 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <div className="info-hall-avatar">
                 <span>🎓</span>
               </div>
-              <h3 className="info-hall-title">DevClass MCA</h3>
-              <span className="info-hall-subtitle">Auditorium Hall S01</span>
+              <h3 className="info-hall-title">{activeConversationTitle}</h3>
+              <span className="info-hall-subtitle">
+                {activeGroup?.description || (activeGroup ? 'Student-created group chat' : 'Auditorium Hall S01')}
+              </span>
             </div>
+
+            {activeGroup && (
+              <div className="info-data-section">
+                <span className="data-section-label">GROUP DETAILS</span>
+                <div className="data-row-card">
+                  <span className="data-row-name">Created by</span>
+                  <span className="data-row-val">@{activeGroup.ownerUsername}</span>
+                </div>
+                <div className="data-row-card">
+                  <span className="data-row-name">Members</span>
+                  <span className="data-row-val">{activeGroup.memberCount}</span>
+                </div>
+                <div className="data-row-card">
+                  <span className="data-row-name">Access</span>
+                  <span className="data-row-val">{activeGroup.isPrivate ? 'Private' : 'Open'}</span>
+                </div>
+              </div>
+            )}
 
             <div className="info-data-section">
               <span className="data-section-label">SEATING ATTENDANCE</span>
@@ -1082,6 +1340,15 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                   Focus My Desk in 3D Hall
                 </button>
               )}
+              {activeGroup && activeGroup.ownerUsername.toLowerCase() !== currentUsername.toLowerCase() && (
+                <button
+                  type="button"
+                  className="info-action-btn danger"
+                  onClick={handleLeaveActiveGroup}
+                >
+                  Leave this group
+                </button>
+              )}
               <button
                 type="button"
                 className="info-action-btn secondary"
@@ -1092,6 +1359,102 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             </div>
           </div>
         </aside>
+      )}
+
+      {/* Create Group Chat Modal */}
+      {showCreateGroup && (
+        <div className="group-create-backdrop" onClick={() => setShowCreateGroup(false)}>
+          <form
+            className="group-create-modal"
+            onSubmit={handleCreateGroup}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="group-create-header">
+              <div>
+                <span className="group-create-kicker">NEW SPACE</span>
+                <h3>Create a group chat</h3>
+                <p>Make a focused room for projects, study circles, or friends.</p>
+              </div>
+              <button
+                type="button"
+                className="group-create-close"
+                onClick={() => setShowCreateGroup(false)}
+                aria-label="Close create group dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <label className="group-form-label" htmlFor="group-name">Group name</label>
+            <input
+              id="group-name"
+              className="group-form-input"
+              value={newGroupName}
+              onChange={(event) => setNewGroupName(event.target.value)}
+              placeholder="e.g. React Study Circle"
+              maxLength={60}
+              autoFocus
+            />
+
+            <label className="group-form-label" htmlFor="group-description">Description <span>optional</span></label>
+            <textarea
+              id="group-description"
+              className="group-form-input group-form-textarea"
+              value={newGroupDescription}
+              onChange={(event) => setNewGroupDescription(event.target.value)}
+              placeholder="What is this group for?"
+              maxLength={180}
+              rows={3}
+            />
+
+            <div className="group-form-row">
+              <div className="group-form-field group-emoji-field">
+                <label className="group-form-label" htmlFor="group-emoji">Icon</label>
+                <input
+                  id="group-emoji"
+                  className="group-form-input group-emoji-input"
+                  value={newGroupEmoji}
+                  onChange={(event) => setNewGroupEmoji(event.target.value.slice(0, 2) || '💬')}
+                  aria-label="Group emoji"
+                />
+              </div>
+              <label className="group-visibility-toggle">
+                <input
+                  type="checkbox"
+                  checked={newGroupPrivate}
+                  onChange={(event) => setNewGroupPrivate(event.target.checked)}
+                />
+                <span className="group-toggle-track" aria-hidden="true" />
+                <span>
+                  <strong>Private group</strong>
+                  <small>Only members can discover it</small>
+                </span>
+              </label>
+            </div>
+
+            {!newGroupPrivate && (
+              <p className="group-form-hint">Open groups appear in the class directory so classmates can join.</p>
+            )}
+            {groupFormError && <p className="group-form-error">{groupFormError}</p>}
+
+            <div className="group-create-actions">
+              <button
+                type="button"
+                className="group-cancel-btn"
+                onClick={() => setShowCreateGroup(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="group-submit-btn"
+                disabled={isCreatingGroup || !isApproved || !newGroupName.trim()}
+              >
+                {isCreatingGroup ? 'Creating...' : 'Create group'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Student Profile Modal (Read-only for other classmates, Editable for self) */}
