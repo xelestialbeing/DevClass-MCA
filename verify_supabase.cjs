@@ -33,10 +33,10 @@ console.log(`📡 Verifying live Supabase database: ${url}...`);
 async function verify() {
   const headers = { apikey: key, Authorization: `Bearer ${key}`, Range: '0-0' };
   
-  // Probe core tables in Supabase
+  // Probe core tables in Supabase using permitted public columns
   const tables = ['users', 'daily_polls'];
   for (const table of tables) {
-    const res = await fetch(`${url}/rest/v1/${table}?select=count`, { headers });
+    const res = await fetch(`${url}/rest/v1/${table}?select=id&limit=1`, { headers });
     if (!res.ok) {
       throw new Error(`Table '${table}' query failed with HTTP status ${res.status}`);
     }
