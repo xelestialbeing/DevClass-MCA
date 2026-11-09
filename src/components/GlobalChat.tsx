@@ -29,6 +29,29 @@ const MESSAGE_REACTIONS = [
   { id: 'celebrate', emoji: '🎉', label: 'Celebrate' },
 ];
 
+const areMessagesEqual = (a: ChatMessage[], b: ChatMessage[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const ma = a[i];
+    const mb = b[i];
+    if (ma.id !== mb.id || ma.content !== mb.content || ma.isEdited !== mb.isEdited) return false;
+    const ra = ma.reactions || {};
+    const rb = mb.reactions || {};
+    const ka = Object.keys(ra);
+    const kb = Object.keys(rb);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) {
+      const ua = ra[k] || [];
+      const ub = rb[k] || [];
+      if (ua.length !== ub.length) return false;
+      for (let j = 0; j < ua.length; j++) {
+        if (ua[j] !== ub[j]) return false;
+      }
+    }
+  }
+  return true;
+};
+
 export const GlobalChat: React.FC<GlobalChatProps> = ({
   isOpen,
   onClose,
@@ -101,6 +124,11 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   };
 
   const currentUsername = currentUser?.username ? currentUser.username.replace(/^@/, '').trim() : '';
+  const isUserInReactions = (userList?: string[]): boolean => {
+    if (!userList || !currentUsername) return false;
+    const cleanCurrent = currentUsername.toLowerCase();
+    return userList.some((u) => u.replace(/^@/, '').trim().toLowerCase() === cleanCurrent);
+  };
   const activeGroup = useMemo(
     () => groups.find((group) => group.id === activeGroupId) || null,
     [groups, activeGroupId]
@@ -280,65 +308,122 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
   }, [isOpen]);
 
-  // Load discoverable groups whenever the chat workspace opens.
+  // Load discoverable groups whenever the chat workspace opens (adaptive interval, paused when document is hidden)
   useEffect(() => {
     if (!isOpen) return;
 
     let isMounted = true;
-    const loadGroups = () => supabaseService.getChatGroups({ id: currentUser?.id, username: currentUsername }).then((loadedGroups) => {
-      if (isMounted) setGroups(loadedGroups);
-    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const loadGroups = async () => {
+      if (document.hidden) {
+        scheduleNext(30000); // 30s when backgrounded
+        return;
+      }
+      try {
+        const loadedGroups = await supabaseService.getChatGroups({ id: currentUser?.id, username: currentUsername });
+        if (isMounted) setGroups(loadedGroups);
+      } catch {}
+      scheduleNext(20000); // 20s when active (groups rarely change)
+    };
+
+    const scheduleNext = (delayMs: number) => {
+      if (!isMounted) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(loadGroups, delayMs);
+    };
+
     loadGroups();
-    const interval = setInterval(loadGroups, 10000);
+
+    const handleVisibility = () => {
+      if (!document.hidden) loadGroups();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [isOpen, currentUser?.id, currentUsername]);
 
-  // Fetch messages with client-side cache & smart delta sync
-  // Uses local cache on refresh so old history is never re-downloaded
+  // Fetch messages with client-side cache & adaptive smart polling:
+  // - 2.5s base interval (relaxed from 1.5s)
+  // - Exponential backoff up to 8s during chat inactivity (no new messages)
+  // - 20s when user switches tab or minimizes window (document.hidden)
+  // - Instantly wakes up upon user activity or tab refocus
   useEffect(() => {
     if (!isOpen || activeGroupId) return;
 
     let isMounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveUnchanged = 0;
+
     const fetchMessages = async () => {
-      const data = await supabaseService.syncChatMessages(messagesRef.current);
+      if (document.hidden) {
+        scheduleNext(20000);
+        return;
+      }
+
+      let hasNewData = false;
+      try {
+        const data = await supabaseService.syncChatMessages(messagesRef.current);
+        if (!isMounted) return;
+
+        setMessages((prev) => {
+          const inFlight = prev.filter((m) => m.id.startsWith('temp_'));
+
+          // Skip re-render if data is unchanged
+          if (inFlight.length === 0 && areMessagesEqual(prev, data)) {
+            hasNewData = false;
+            return prev;
+          }
+
+          hasNewData = true;
+          const confirmedIds = new Set(data.map((d) => d.id));
+          const stillPending = inFlight.filter((opt) => !confirmedIds.has(opt.id));
+          const merged = [...data, ...stillPending];
+          setCachedChatMessages(merged);
+          return merged;
+        });
+      } catch {}
+
+      if (hasNewData) {
+        consecutiveUnchanged = 0;
+      } else {
+        consecutiveUnchanged = Math.min(consecutiveUnchanged + 1, 6);
+      }
+
+      // 2.5s -> 3.2s -> 4.0s -> ... up to 7.5s when idle
+      const nextDelay = 2500 + consecutiveUnchanged * 800;
+      scheduleNext(nextDelay);
+    };
+
+    const scheduleNext = (delayMs: number) => {
       if (!isMounted) return;
-
-      setMessages((prev) => {
-        const inFlight = prev.filter((m) => m.id.startsWith('temp_'));
-
-        // Skip re-render if data is unchanged
-        if (
-          inFlight.length === 0 &&
-          prev.length === data.length &&
-          prev[prev.length - 1]?.id === data[data.length - 1]?.id &&
-          prev[prev.length - 1]?.content === data[data.length - 1]?.content &&
-          JSON.stringify(prev[prev.length - 1]?.reactions) === JSON.stringify(data[data.length - 1]?.reactions)
-        ) {
-          return prev;
-        }
-
-        const confirmedIds = new Set(data.map((d) => d.id));
-        const stillPending = inFlight.filter((opt) => !confirmedIds.has(opt.id));
-        const merged = [...data, ...stillPending];
-        setCachedChatMessages(merged);
-        return merged;
-      });
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fetchMessages, delayMs);
     };
 
     fetchMessages();
-    const interval = setInterval(fetchMessages, 1500);
+
+    // Wakes up immediately when user focuses or returns to tab
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        consecutiveUnchanged = 0;
+        fetchMessages();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isOpen, activeGroupId]);
 
-  // Group conversations use the same live polling rhythm as the global room.
+  // Group conversations use the same adaptive backoff rhythm
   useEffect(() => {
     if (!isOpen || !activeGroupId) {
       if (!activeGroupId) setGroupMessages([]);
@@ -346,17 +431,53 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
 
     let isMounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let idleCount = 0;
+
     const fetchGroupMessages = async () => {
-      const data = await supabaseService.syncGroupChatMessages(activeGroupId, groupMessagesRef.current);
-      if (isMounted) setGroupMessages(data);
+      if (document.hidden) {
+        scheduleNext(20000);
+        return;
+      }
+
+      try {
+        const data = await supabaseService.syncGroupChatMessages(activeGroupId, groupMessagesRef.current);
+        if (isMounted) {
+          setGroupMessages((prev) => {
+            if (areMessagesEqual(prev, data)) {
+              idleCount = Math.min(idleCount + 1, 6);
+              return prev;
+            }
+            idleCount = 0;
+            return data;
+          });
+        }
+      } catch {}
+
+      const nextDelay = 2500 + idleCount * 900;
+      scheduleNext(nextDelay);
+    };
+
+    const scheduleNext = (delayMs: number) => {
+      if (!isMounted) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fetchGroupMessages, delayMs);
     };
 
     fetchGroupMessages();
-    const interval = setInterval(fetchGroupMessages, 1800);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        idleCount = 0;
+        fetchGroupMessages();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isOpen, activeGroupId]);
 
@@ -721,19 +842,22 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
   const handleToggleReaction = async (messageId: string, emoji: string) => {
     if (!currentUsername) return;
+    const cleanUser = currentUsername.replace(/^@/, '').trim().toLowerCase();
     setActiveReactionMsgId(null);
 
-    // Optimistic UI update
+    // Optimistic UI update (case-insensitive username comparison)
     const updateReactions = (previous: ChatMessage[]) => previous.map((msg) => {
       if (msg.id !== messageId) return msg;
       const currentReactions: Record<string, string[]> = { ...(msg.reactions || {}) };
       const users = currentReactions[emoji] ? [...currentReactions[emoji]] : [];
-      if (users.includes(currentUsername)) {
-        const filtered = users.filter((u) => u !== currentUsername);
-        if (filtered.length === 0) delete currentReactions[emoji];
-        else currentReactions[emoji] = filtered;
+      const userIndex = users.findIndex((u) => u.replace(/^@/, '').trim().toLowerCase() === cleanUser);
+
+      if (userIndex !== -1) {
+        users.splice(userIndex, 1);
+        if (users.length === 0) delete currentReactions[emoji];
+        else currentReactions[emoji] = users;
       } else {
-        currentReactions[emoji] = [...users, currentUsername];
+        currentReactions[emoji] = [...users, cleanUser];
       }
       return { ...msg, reactions: currentReactions };
     });
@@ -741,9 +865,9 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     else setMessages(updateReactions);
 
     if (activeGroupId) {
-      await supabaseService.toggleGroupChatMessageReaction(messageId, emoji, currentUsername);
+      await supabaseService.toggleGroupChatMessageReaction(messageId, emoji, cleanUser);
     } else {
-      await supabaseService.toggleChatMessageReaction(messageId, emoji, currentUsername);
+      await supabaseService.toggleChatMessageReaction(messageId, emoji, cleanUser);
     }
   };
 
@@ -1154,7 +1278,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
                         {/* Interactive Message Bubble */}
                         <div
-                          className={`chat-bubble ${isMine ? 'outgoing' : 'incoming'} ${msg.id.startsWith('temp_') ? 'optimistic' : ''}`}
+                          className={`chat-bubble ${isMine ? 'outgoing' : 'incoming'} ${msg.id.startsWith('temp_') ? 'optimistic' : ''} ${reactionEntries.length > 0 ? 'has-reactions' : ''}`}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setActiveReactionMsgId(msg.id);
@@ -1213,9 +1337,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                             >
                               <div className="reaction-emojis-cluster">
                                 {MESSAGE_REACTIONS.map((r) => {
-                                  const hasReacted = Boolean(
-                                    reactions[r.emoji]?.includes(currentUsername)
-                                  );
+                                  const hasReacted = isUserInReactions(reactions[r.emoji]);
                                   return (
                                     <button
                                       key={r.id}
@@ -1297,7 +1419,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                           {reactionEntries.length > 0 && (
                             <div className="bubble-attached-reactions">
                               {reactionEntries.map(([emoji, users]) => {
-                                const hasReacted = Boolean(currentUsername && users.includes(currentUsername));
+                                const hasReacted = isUserInReactions(users);
                                 return (
                                   <button
                                     key={emoji}
@@ -1763,9 +1885,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             {/* Reaction Emojis Cluster */}
             <div className="mobile-reaction-emojis-cluster">
               {MESSAGE_REACTIONS.map((r) => {
-                const hasReacted = Boolean(
-                  activeReactionMsg.reactions?.[r.emoji]?.includes(currentUsername)
-                );
+                const hasReacted = isUserInReactions(activeReactionMsg.reactions?.[r.emoji]);
                 return (
                   <button
                     key={r.id}

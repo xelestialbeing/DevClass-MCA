@@ -1064,14 +1064,9 @@ export const supabaseService = {
         return this.getChatMessages(60);
       }
 
-      // 2. Active Window: messages older than 30m are immutable.
-      // We only query messages created within the active 30-minute window.
-      const newestTime = cached[cached.length - 1]?.createdAt;
-      const newestTimestamp = newestTime ? new Date(newestTime).getTime() : Date.now();
-      const windowStart = new Date(Math.min(Date.now(), newestTimestamp) - (30 * 60 * 1000)).toISOString();
-
+      // 2. Fetch the latest 60 messages to capture live updates, reactions, and deletions
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&created_at=gte.${encodeURIComponent(windowStart)}&order=created_at.asc`,
+        `${SUPABASE_URL}/rest/v1/chat_messages?select=id,user_id,username,avatar_url,seat_number,content,reactions,created_at&order=created_at.desc&limit=60`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -1116,14 +1111,20 @@ export const supabaseService = {
             };
           });
 
-        // Keep immutable messages created before windowStart
-        const windowStartTime = new Date(windowStart).getTime();
-        const immutableHistory = cached.filter((m) => {
-          const t = new Date(m.createdAt).getTime();
-          return !isNaN(t) && t < windowStartTime && !m.id.startsWith('temp_') && !tombstones.has(m.id);
-        });
+        // Fast delta map to update existing messages and preserve ordering
+        const deltaMap = new Map<string, ChatMessage>();
+        activeDelta.forEach((m) => deltaMap.set(m.id, m));
 
-        const merged = [...immutableHistory, ...activeDelta];
+        // Update cached messages with fresh server data (including reactions)
+        const updatedCached = cached
+          .filter((m) => !tombstones.has(m.id))
+          .map((m) => deltaMap.get(m.id) || m);
+
+        // Include any new messages from server that weren't in cache
+        const cachedIds = new Set(updatedCached.map((m) => m.id));
+        const newFromDelta = activeDelta.filter((m) => !cachedIds.has(m.id));
+
+        const merged = [...updatedCached, ...newFromDelta];
         merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
         setCachedChatMessages(merged);
@@ -1242,7 +1243,7 @@ export const supabaseService = {
     emoji: string,
     username: string
   ): Promise<ChatMessage | null> {
-    const cleanUser = username.replace(/^@/, '').trim();
+    const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
     if (!cleanUser || !emoji) return null;
 
     if (!isSupabaseConfigured()) {
@@ -1252,11 +1253,14 @@ export const supabaseService = {
         const msg = list.find((m) => m.id === messageId);
         if (msg) {
           if (!msg.reactions) msg.reactions = {};
-          const currentUsers = msg.reactions[emoji] || [];
-          if (currentUsers.includes(cleanUser)) {
-            msg.reactions[emoji] = currentUsers.filter((u) => u !== cleanUser);
-            if (msg.reactions[emoji].length === 0) {
+          const currentUsers: string[] = Array.isArray(msg.reactions[emoji]) ? msg.reactions[emoji] : [];
+          const userIdx = currentUsers.findIndex((u) => u.replace(/^@/, '').trim().toLowerCase() === cleanUser);
+          if (userIdx !== -1) {
+            currentUsers.splice(userIdx, 1);
+            if (currentUsers.length === 0) {
               delete msg.reactions[emoji];
+            } else {
+              msg.reactions[emoji] = currentUsers;
             }
           } else {
             msg.reactions[emoji] = [...currentUsers, cleanUser];
@@ -1287,11 +1291,14 @@ export const supabaseService = {
       if (!rows || rows.length === 0) return null;
 
       const currentReactions: Record<string, string[]> = rows[0].reactions || {};
-      const usersForEmoji = currentReactions[emoji] || [];
-      if (usersForEmoji.includes(cleanUser)) {
-        currentReactions[emoji] = usersForEmoji.filter((u) => u !== cleanUser);
-        if (currentReactions[emoji].length === 0) {
+      const usersForEmoji: string[] = Array.isArray(currentReactions[emoji]) ? currentReactions[emoji] : [];
+      const userIdx = usersForEmoji.findIndex((u) => u.replace(/^@/, '').trim().toLowerCase() === cleanUser);
+      if (userIdx !== -1) {
+        usersForEmoji.splice(userIdx, 1);
+        if (usersForEmoji.length === 0) {
           delete currentReactions[emoji];
+        } else {
+          currentReactions[emoji] = usersForEmoji;
         }
       } else {
         currentReactions[emoji] = [...usersForEmoji, cleanUser];
@@ -1315,6 +1322,12 @@ export const supabaseService = {
       if (patchRes.ok) {
         const updatedRows = await patchRes.json();
         if (updatedRows && updatedRows[0]) {
+          const rawReactions = (updatedRows[0].reactions && typeof updatedRows[0].reactions === 'object') ? { ...updatedRows[0].reactions } : {};
+          const confirmedReply = rawReactions._reply || null;
+          delete rawReactions._reply;
+          delete rawReactions._edited;
+          delete rawReactions._deleted;
+
           const updatedMsg: ChatMessage = {
             id: updatedRows[0].id,
             userId: updatedRows[0].user_id,
@@ -1322,8 +1335,9 @@ export const supabaseService = {
             avatarUrl: updatedRows[0].avatar_url,
             seatNumber: updatedRows[0].seat_number,
             content: updatedRows[0].content,
-            reactions: updatedRows[0].reactions || {},
+            reactions: rawReactions,
             createdAt: updatedRows[0].created_at,
+            replyTo: confirmedReply,
           };
           const updatedCache = getCachedChatMessages().map((m) =>
             m.id === messageId ? { ...m, reactions: updatedMsg.reactions } : m
@@ -1880,7 +1894,7 @@ export const supabaseService = {
   },
 
   async toggleGroupChatMessageReaction(messageId: string, emoji: string, username: string): Promise<ChatMessage | null> {
-    const cleanUser = username.replace(/^@/, '').trim();
+    const cleanUser = username.replace(/^@/, '').trim().toLowerCase();
     if (!messageId || !emoji || !cleanUser) return null;
 
     if (!isSupabaseConfigured()) {
@@ -1888,11 +1902,11 @@ export const supabaseService = {
       const index = messages.findIndex((message) => message.id === messageId);
       if (index < 0) return null;
       const message = { ...messages[index], reactions: { ...(messages[index].reactions || {}) } };
-      const users = [...(message.reactions?.[emoji] || [])];
-      message.reactions = { ...(message.reactions || {}) };
-      if (users.includes(cleanUser)) {
-        const remaining = users.filter((user) => user !== cleanUser);
-        if (remaining.length) message.reactions[emoji] = remaining;
+      const users: string[] = Array.isArray(message.reactions?.[emoji]) ? [...message.reactions[emoji]] : [];
+      const userIdx = users.findIndex((u) => u.replace(/^@/, '').trim().toLowerCase() === cleanUser);
+      if (userIdx !== -1) {
+        users.splice(userIdx, 1);
+        if (users.length) message.reactions[emoji] = users;
         else delete message.reactions[emoji];
       } else {
         message.reactions[emoji] = [...users, cleanUser];
@@ -1911,12 +1925,15 @@ export const supabaseService = {
       const rows = await currentRes.json();
       if (!rows?.[0]) return null;
       const reactions: Record<string, string[]> = { ...(rows[0].reactions || {}) };
-      const users = reactions[emoji] || [];
-      if (users.includes(cleanUser)) {
-        const remaining = users.filter((user) => user !== cleanUser);
-        if (remaining.length) reactions[emoji] = remaining;
+      const users: string[] = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
+      const userIdx = users.findIndex((u) => u.replace(/^@/, '').trim().toLowerCase() === cleanUser);
+      if (userIdx !== -1) {
+        users.splice(userIdx, 1);
+        if (users.length) reactions[emoji] = users;
         else delete reactions[emoji];
-      } else reactions[emoji] = [...users, cleanUser];
+      } else {
+        reactions[emoji] = [...users, cleanUser];
+      }
 
       const patchRes = await fetch(
         `${SUPABASE_URL}/rest/v1/group_chat_messages?id=eq.${encodeURIComponent(messageId)}`,

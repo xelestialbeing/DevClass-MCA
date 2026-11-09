@@ -51,9 +51,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     // Open Telegram Bot
     window.open(session.telegramLink, '_blank');
 
-    // Poll for verification status every 2 seconds
+    // Poll for verification status with adaptive backoff & timeout (auto-stops after 2 minutes)
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    const startTime = Date.now();
     pollIntervalRef.current = setInterval(async () => {
+      // Auto-terminate polling after 2 minutes to protect server resources
+      if (Date.now() - startTime > 120000) {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        setWaitingTelegram(false);
+        return;
+      }
+      if (document.hidden) return; // Skip request if user navigated to another app
+
       const res = await supabaseService.checkPhoneVerificationStatus(session.code);
       if (res.verified && res.phoneNumber) {
         setPhoneNumber(res.phoneNumber);
@@ -61,7 +70,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setWaitingTelegram(false);
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       }
-    }, 2000);
+    }, 2500);
   };
 
   const handleVerifyPin = async (e?: React.FormEvent) => {

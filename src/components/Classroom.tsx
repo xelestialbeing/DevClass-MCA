@@ -167,12 +167,35 @@ export function Classroom({ currentUser, onSignOut }: ClassroomProps) {
     // Always run initial check against server (neutralizes localStorage spoofing)
     verifyStatus();
 
-    // If not approved yet, keep polling for admin decision
+    // If not approved yet, poll for admin decision with adaptive backoff (stops draining when tab is hidden)
     if (!isApproved) {
-      const timer = setInterval(verifyStatus, 2500);
+      let pollCount = 0;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      const runPoll = async () => {
+        if (!isMounted) return;
+        if (!document.hidden) {
+          await verifyStatus();
+          pollCount++;
+        }
+        // Starts at 3s, gently expands up to 10s if admin review takes longer
+        const delay = Math.min(3000 + pollCount * 800, 10000);
+        if (isMounted) timer = setTimeout(runPoll, delay);
+      };
+
+      timer = setTimeout(runPoll, 3000);
+
+      const handleVisibility = () => {
+        if (!document.hidden && isMounted) {
+          verifyStatus();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+
       return () => {
         isMounted = false;
-        clearInterval(timer);
+        if (timer) clearTimeout(timer);
+        document.removeEventListener('visibilitychange', handleVisibility);
       };
     }
 
