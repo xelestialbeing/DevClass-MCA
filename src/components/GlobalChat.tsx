@@ -157,15 +157,26 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       .slice(0, 8);
   }, [mentionQuery, classroomMembers, messages]);
 
-  // Smooth scroll to quoted message with tactical pulse animation
+  // Smooth scroll to quoted message with premium Telegram/iMessage style highlight flash
   const scrollToMessage = (targetId: string) => {
     const el = document.getElementById(`chat-msg-${targetId}`);
     if (el) {
+      const bubble = el.querySelector('.chat-bubble');
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Apply target flash to both the row container and the specific bubble
+      el.classList.remove('message-target-pulse');
+      bubble?.classList.remove('bubble-target-flash');
+      // Trigger reflow to restart animation smoothly if clicked repeatedly
+      void el.offsetWidth;
+
       el.classList.add('message-target-pulse');
+      bubble?.classList.add('bubble-target-flash');
+
       setTimeout(() => {
         el.classList.remove('message-target-pulse');
-      }, 1600);
+        bubble?.classList.remove('bubble-target-flash');
+      }, 1800);
     }
   };
 

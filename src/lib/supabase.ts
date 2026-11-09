@@ -551,7 +551,7 @@ export const supabaseService = {
     }
   },
 
-  // 5. Sign In by Username
+  // 5. Sign In by Username (Calls secure RPC to retrieve student profile without exposing full table to public SELECT)
   async signInWithUsername(username: string): Promise<{ user?: UserProfile; error?: string }> {
     const trimmed = username.trim();
     if (!trimmed) {
@@ -573,44 +573,64 @@ export const supabaseService = {
     }
 
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/users?username=ilike.${encodeURIComponent(trimmed)}&select=*`,
-        {
+      // 1. First attempt secure RPC authenticate_student
+      let profileData: any = null;
+      try {
+        const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/authenticate_student`, {
+          method: 'POST',
           headers: {
             apikey: SUPABASE_ANON_KEY,
             Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
           },
+          body: JSON.stringify({ p_username: trimmed }),
+        });
+        if (rpcRes.ok) {
+          profileData = await rpcRes.json();
         }
-      );
+      } catch {}
 
-      if (!res.ok) {
-        throw new Error(`Supabase query error: ${res.statusText}`);
+      // 2. Fallback to public columns SELECT if RPC migration not yet applied
+      if (!profileData) {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/users?username=ilike.${encodeURIComponent(trimmed)}&select=id,username,catchphrase,avatar_url,face_scan_status`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+        if (res.ok) {
+          const rows = await res.json();
+          if (rows && rows.length > 0) {
+            profileData = rows[0];
+          }
+        }
       }
 
-      const rows = await res.json();
-      if (!rows || rows.length === 0) {
+      if (!profileData) {
         return { error: `No registered account found for "${trimmed}". Please sign up first.` };
       }
 
-      const isApproved = rows[0].face_scan_status === 'verified';
-
+      const isApproved = profileData.face_scan_status === 'verified';
       const user: UserProfile = {
-        id: rows[0].id,
-        username: rows[0].username,
-        phoneNumber: rows[0].phone_number,
-        catchphrase: rows[0].catchphrase || 'Active Student',
-        avatar: rows[0].username.charAt(0).toUpperCase(),
-        avatarUrl: rows[0].avatar_url || undefined,
-        email: rows[0].email,
-        faceScanUrl: rows[0].face_scan_url,
-        faceScanStatus: rows[0].face_scan_status || 'pending',
+        id: profileData.id,
+        username: profileData.username,
+        phoneNumber: profileData.phone_number,
+        catchphrase: profileData.catchphrase || 'Active Student',
+        avatar: profileData.username.charAt(0).toUpperCase(),
+        avatarUrl: profileData.avatar_url || undefined,
+        email: profileData.email,
+        faceScanUrl: profileData.face_scan_url,
+        faceScanStatus: profileData.face_scan_status || 'pending',
         isApproved,
       };
 
       localStorage.setItem(SESSION_KEY, JSON.stringify(user));
       return { user };
     } catch (err: any) {
-      console.error('Supabase query error:', err);
+      console.error('Authentication error:', err);
       return { error: err.message || 'Failed to authenticate user.' };
     }
   },
@@ -786,15 +806,35 @@ export const supabaseService = {
     return { code, telegramLink };
   },
 
-  // 9. Poll Phone Verification Status from Telegram
+  // 9. Poll Phone Verification Status from Telegram (via secure RPC)
   async checkPhoneVerificationStatus(code: string): Promise<{ verified: boolean; phoneNumber?: string }> {
     if (!isSupabaseConfigured()) {
       return { verified: false };
     }
 
     try {
+      // 1. Try secure RPC function (does not expose other users or PINs)
+      const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_verification_status`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_code: code }),
+      });
+
+      if (rpcRes.ok) {
+        const result = await rpcRes.json();
+        if (result && result.verified) {
+          return { verified: true, phoneNumber: result.phone_number };
+        }
+        return { verified: false };
+      }
+
+      // 2. Fallback to direct query if migration not yet executed
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/phone_verifications?code=eq.${encodeURIComponent(code)}&verified=eq.true&select=*`,
+        `${SUPABASE_URL}/rest/v1/phone_verifications?code=eq.${encodeURIComponent(code)}&verified=eq.true&select=phone_number`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -815,15 +855,35 @@ export const supabaseService = {
     }
   },
 
-  // 10. Verify by 4-Digit PIN sent in Telegram
+  // 10. Verify by 4-Digit PIN sent in Telegram (via secure RPC)
   async verifyPhonePin(pin: string): Promise<{ valid: boolean; phoneNumber?: string }> {
     if (!isSupabaseConfigured()) {
       return { valid: false };
     }
 
     try {
+      // 1. Try secure RPC function
+      const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_pin_verification`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_pin: pin.trim() }),
+      });
+
+      if (rpcRes.ok) {
+        const result = await rpcRes.json();
+        if (result && result.valid) {
+          return { valid: true, phoneNumber: result.phone_number };
+        }
+        return { valid: false };
+      }
+
+      // 2. Fallback
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/phone_verifications?pin=eq.${encodeURIComponent(pin.trim())}&select=*`,
+        `${SUPABASE_URL}/rest/v1/phone_verifications?pin=eq.${encodeURIComponent(pin.trim())}&select=phone_number`,
         {
           headers: {
             apikey: SUPABASE_ANON_KEY,

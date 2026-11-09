@@ -873,20 +873,30 @@
   padding: 6px 10px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.28);
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   user-select: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .chat-bubble.outgoing .bubble-reply-quote {
   background: rgba(0, 0, 0, 0.22);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .bubble-reply-quote:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.bubble-reply-quote:active {
+  transform: scale(0.98) translateY(0);
+  background: rgba(0, 0, 0, 0.35);
+  transition-duration: 0.08s;
 }
 
 .reply-quote-bar {
@@ -894,10 +904,20 @@
   border-radius: 2px;
   background: #38bdf8;
   flex-shrink: 0;
+  transition: width 0.16s ease, background-color 0.16s ease;
 }
 
 .chat-bubble.outgoing .reply-quote-bar {
   background: #93c5fd;
+}
+
+.bubble-reply-quote:hover .reply-quote-bar {
+  width: 4px;
+  background: #7dd3fc;
+}
+
+.chat-bubble.outgoing .bubble-reply-quote:hover .reply-quote-bar {
+  background: #bfdbfe;
 }
 
 .reply-quote-body {
@@ -927,23 +947,72 @@
   line-height: 1.2;
 }
 
-/* Tactical Pulse Animation when jumping to message */
+/* Premium Telegram / iOS Style Target Message Highlight Pulse */
 .message-target-pulse {
-  animation: targetPulseGlow 1.6s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  z-index: 5;
 }
 
-@keyframes targetPulseGlow {
+/* Row-level subtle ambient sweep */
+.message-target-pulse::before {
+  content: '';
+  position: absolute;
+  inset: -4px -8px;
+  border-radius: 14px;
+  background: rgba(56, 189, 248, 0.12);
+  pointer-events: none;
+  animation: targetRowFlash 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes targetRowFlash {
   0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.85);
+    opacity: 0;
+    transform: scale(0.98);
   }
-  30% {
-    transform: scale(1.025);
-    box-shadow: 0 0 24px 8px rgba(56, 189, 248, 0.55);
+  20% {
+    opacity: 1;
+    transform: scale(1);
   }
   100% {
+    opacity: 0;
     transform: scale(1);
-    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Bubble-level high-fidelity glow and accent ring (no layout-breaking scale distortion) */
+.chat-bubble.bubble-target-flash {
+  animation: targetBubbleFlash 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes targetBubbleFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+    filter: brightness(1);
+  }
+  18% {
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.65), 0 8px 24px -4px rgba(56, 189, 248, 0.45);
+    filter: brightness(1.18);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35), 0 4px 16px -2px rgba(56, 189, 248, 0.25);
+    filter: brightness(1.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0), 0 1px 3px rgba(0, 0, 0, 0.2);
+    filter: brightness(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-target-pulse::before,
+  .chat-bubble.bubble-target-flash {
+    animation-duration: 0.3s;
+    animation-name: simpleFlashFade;
+  }
+  @keyframes simpleFlashFade {
+    0% { opacity: 0; }
+    50% { opacity: 1; }
+    100% { opacity: 0; }
   }
 }
 
