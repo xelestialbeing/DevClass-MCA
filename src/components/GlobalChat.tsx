@@ -57,6 +57,12 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const [newGroupPrivate, setNewGroupPrivate] = useState(false);
   const [groupFormError, setGroupFormError] = useState('');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
+  const [classroomMembers, setClassroomMembers] = useState<Array<{ username: string; avatarUrl?: string | null }>>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionCursorIndex, setMentionCursorIndex] = useState<number | null>(null);
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -66,6 +72,17 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const groupMessagesRef = useRef<ChatMessage[]>(groupMessages);
   groupMessagesRef.current = groupMessages;
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load classroom members on open for mention directory
+  useEffect(() => {
+    if (isOpen) {
+      supabaseService.getClassroomMembers().then((mems) => {
+        if (mems && mems.length > 0) {
+          setClassroomMembers(mems);
+        }
+      });
+    }
+  }, [isOpen]);
 
   const handleTouchStartMessage = (msgId: string) => {
     longPressTimerRef.current = setTimeout(() => {
@@ -115,6 +132,99 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     });
     return Array.from(map.values());
   }, [activeMessages]);
+
+  // Mention autocomplete candidate directory
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const map = new Map<string, { username: string; avatarUrl?: string | null }>();
+
+    classroomMembers.forEach((m) => {
+      const u = m.username.replace(/^@/, '').trim();
+      if (u) map.set(u.toLowerCase(), { username: u, avatarUrl: m.avatarUrl });
+    });
+
+    messages.forEach((m) => {
+      const u = m.username.replace(/^@/, '').trim();
+      if (u && !map.has(u.toLowerCase())) {
+        map.set(u.toLowerCase(), { username: u, avatarUrl: m.avatarUrl });
+      }
+    });
+
+    const list = Array.from(map.values());
+    if (!mentionQuery) return list.slice(0, 8);
+    return list
+      .filter((c) => c.username.toLowerCase().includes(mentionQuery))
+      .slice(0, 8);
+  }, [mentionQuery, classroomMembers, messages]);
+
+  // Smooth scroll to quoted message with tactical pulse animation
+  const scrollToMessage = (targetId: string) => {
+    const el = document.getElementById(`chat-msg-${targetId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('message-target-pulse');
+      setTimeout(() => {
+        el.classList.remove('message-target-pulse');
+      }, 1600);
+    }
+  };
+
+  // Start reply to a message
+  const handleStartReply = (msg: ChatMessage) => {
+    setReplyingToMessage(msg);
+    setActiveReactionMsgId(null);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 40);
+  };
+
+  // Insert mention into input text
+  const handleInsertMention = (targetUsername: string) => {
+    const cleanName = targetUsername.replace(/^@/, '').trim();
+    const cursorPos = mentionCursorIndex ?? (textareaRef.current?.selectionStart || inputText.length);
+    const textBefore = inputText.slice(0, cursorPos);
+    const textAfter = inputText.slice(cursorPos);
+    const atIndex = textBefore.lastIndexOf('@');
+    if (atIndex !== -1) {
+      const insertion = `@${cleanName} `;
+      const newText = textBefore.slice(0, atIndex) + insertion + textAfter;
+      setInputText(newText);
+      setShowMentionPicker(false);
+      setMentionQuery(null);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          const newPos = atIndex + insertion.length;
+          textareaRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 30);
+    }
+  };
+
+  // Interactive mention token parser
+  const renderMessageContent = (text: string) => {
+    const parts = text.split(/(@[a-zA-Z0-9_]+)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith('@')) {
+        const uname = part.slice(1);
+        const isMe = Boolean(currentUsername && uname.toLowerCase() === currentUsername.toLowerCase());
+        return (
+          <span
+            key={idx}
+            className={`chat-mention-tag ${isMe ? 'is-me' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenUserProfile(uname);
+            }}
+            title={isMe ? 'You were mentioned' : `Click to view @${uname}'s profile`}
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
 
   // Open full student profile on avatar/username click
   const handleOpenUserProfile = async (username: string, avatarUrl?: string, userId?: string) => {
@@ -252,13 +362,18 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (messageToDelete) {
+        if (showMentionPicker) {
+          setShowMentionPicker(false);
+          setMentionQuery(null);
+        } else if (messageToDelete) {
           setMessageToDelete(null);
         } else if (showCreateGroup) {
           setShowCreateGroup(false);
           setGroupFormError('');
         } else if (editingMessage) {
           handleCancelEdit();
+        } else if (replyingToMessage) {
+          setReplyingToMessage(null);
         } else if (showInfoSheet) {
           setShowInfoSheet(false);
         } else if (activeReactionMsgId) {
@@ -379,6 +494,8 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
   const handleCancelEdit = () => {
     setEditingMessage(null);
     setInputText('');
+    setShowMentionPicker(false);
+    setMentionQuery(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
@@ -468,6 +585,12 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     }
 
     // Normal Send:
+    const replyMeta = replyingToMessage ? {
+      id: replyingToMessage.id,
+      username: replyingToMessage.username,
+      content: replyingToMessage.content,
+    } : null;
+
     // 1. Trigger immediate button pop/spring animation
     setIsDispatchingAnim(true);
     setTimeout(() => setIsDispatchingAnim(false), 360);
@@ -483,12 +606,16 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
       content: text,
       reactions: {},
       createdAt: new Date().toISOString(),
+      replyTo: replyMeta,
     };
 
     // 3. Append to state instantly and clear input
     if (activeGroupId) setGroupMessages((prev) => [...prev, optimisticMsg]);
     else setMessages((prev) => [...prev, optimisticMsg]);
     setInputText('');
+    setReplyingToMessage(null);
+    setShowMentionPicker(false);
+    setMentionQuery(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     // 4. Smoothly scroll into view
@@ -504,6 +631,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
           username,
           avatarUrl,
           content: text,
+          replyTo: replyMeta,
         })
       : supabaseService.sendChatMessage({
           userId,
@@ -511,6 +639,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
           avatarUrl,
           seatNumber: mySeat,
           content: text,
+          replyTo: replyMeta,
         });
     sendRequest.then((confirmed) => {
       if (confirmed) {
@@ -529,7 +658,50 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
     });
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    const cursorPos = e.target.selectionStart || val.length;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const match = textBeforeCursor.match(/@([a-zA-Z0-9_]*)$/);
+
+    if (match) {
+      setMentionQuery(match[1].toLowerCase());
+      setMentionCursorIndex(cursorPos);
+      setShowMentionPicker(true);
+      setMentionSelectedIndex(0);
+    } else {
+      setShowMentionPicker(false);
+      setMentionQuery(null);
+    }
+  };
+
   const handleKeyDownTextarea = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showMentionPicker && mentionCandidates.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (prev + 1) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (prev - 1 + mentionCandidates.length) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        handleInsertMention(mentionCandidates[mentionSelectedIndex].username);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowMentionPicker(false);
+        setMentionQuery(null);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -912,7 +1084,7 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                       </div>
                     )}
 
-                    <div className={`chat-message-entry ${isMine ? 'outgoing' : 'incoming'}`}>
+                    <div id={`chat-msg-${msg.id}`} className={`chat-message-entry ${isMine ? 'outgoing' : 'incoming'}`}>
                       {/* Classmate Avatar for incoming */}
                       {!isMine && (
                         <div 
@@ -980,8 +1152,26 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                           onTouchEnd={handleTouchEndMessage}
                           onTouchMove={handleTouchEndMessage}
                         >
+                          {/* Attached Reply Quote Card */}
+                          {msg.replyTo && (
+                            <div
+                              className="bubble-reply-quote"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                scrollToMessage(msg.replyTo!.id);
+                              }}
+                              title="Click to jump to quoted message"
+                            >
+                              <div className="reply-quote-bar" />
+                              <div className="reply-quote-body">
+                                <span className="reply-quote-author">@{msg.replyTo.username.replace(/^@/, '')}</span>
+                                <span className="reply-quote-snippet">{msg.replyTo.content}</span>
+                              </div>
+                            </div>
+                          )}
+
                           <p className="bubble-text-content">
-                            {msg.content}
+                            {renderMessageContent(msg.content)}
                             {msg.isEdited && <span className="bubble-edited-badge" title="Edited message"> (edited)</span>}
                           </p>
 
@@ -1029,52 +1219,66 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
                                 })}
                               </div>
 
-                              {isMine && (
-                                <div className="floating-manage-group">
-                                  <div className="floating-manage-divider" />
-                                  {(() => {
-                                    const actionStatus = getMessageActionStatus(msg.createdAt);
-                                    if (actionStatus.canEditOrDelete) {
-                                      return (
-                                        <>
-                                          <button
-                                            type="button"
-                                            className="manage-item-btn edit"
-                                            onClick={() => handleStartEdit(msg)}
-                                            title={`Edit message (${actionStatus.minutesRemaining}m remaining)`}
-                                          >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                            </svg>
-                                            <span>Edit ({actionStatus.minutesRemaining}m)</span>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="manage-item-btn delete"
-                                            onClick={() => {
-                                              setActiveReactionMsgId(null);
-                                              setMessageToDelete(msg);
-                                            }}
-                                            title={`Delete message (${actionStatus.minutesRemaining}m remaining)`}
-                                          >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                              <polyline points="3 6 5 6 21 6" />
-                                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                            </svg>
-                                            <span>Delete</span>
-                                          </button>
-                                        </>
-                                      );
-                                    }
+                              <div className="floating-manage-group">
+                                <div className="floating-manage-divider" />
+                                <button
+                                  type="button"
+                                  className="manage-item-btn reply"
+                                  onClick={() => {
+                                    setActiveReactionMsgId(null);
+                                    handleStartReply(msg);
+                                  }}
+                                  title="Reply to message"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="9 17 4 12 9 7" />
+                                    <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                                  </svg>
+                                  <span>Reply</span>
+                                </button>
+
+                                {isMine && (() => {
+                                  const actionStatus = getMessageActionStatus(msg.createdAt);
+                                  if (actionStatus.canEditOrDelete) {
                                     return (
-                                      <span className="manage-item-expired" title="Message can no longer be edited or deleted (30-minute window exceeded)">
-                                        🔒 30m window closed
-                                      </span>
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="manage-item-btn edit"
+                                          onClick={() => handleStartEdit(msg)}
+                                          title={`Edit message (${actionStatus.minutesRemaining}m remaining)`}
+                                        >
+                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                          </svg>
+                                          <span>Edit ({actionStatus.minutesRemaining}m)</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="manage-item-btn delete"
+                                          onClick={() => {
+                                            setActiveReactionMsgId(null);
+                                            setMessageToDelete(msg);
+                                          }}
+                                          title={`Delete message (${actionStatus.minutesRemaining}m remaining)`}
+                                        >
+                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                            <polyline points="3 6 5 6 21 6" />
+                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                          </svg>
+                                          <span>Delete</span>
+                                        </button>
+                                      </>
                                     );
-                                  })()}
-                                </div>
-                              )}
+                                  }
+                                  return (
+                                    <span className="manage-item-expired" title="Message can no longer be edited or deleted (30-minute window exceeded)">
+                                      🔒 30m window closed
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </div>
                           )}
 
@@ -1140,6 +1344,33 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
             Message Input Dock
             ---------------------------------------------------------------------- */}
         <footer className="chat-composer-dock">
+          {/* Active Reply Message Banner */}
+          {replyingToMessage && (
+            <div className="composer-reply-banner">
+              <div className="reply-banner-left">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="reply-banner-icon">
+                  <polyline points="9 17 4 12 9 7" />
+                  <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                </svg>
+                <div className="reply-banner-text-wrap">
+                  <span className="reply-banner-heading">
+                    Replying to <strong>@{replyingToMessage.username.replace(/^@/, '')}</strong>
+                  </span>
+                  <span className="reply-banner-preview">{replyingToMessage.content}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="reply-banner-cancel-action"
+                onClick={() => setReplyingToMessage(null)}
+                title="Cancel reply (ESC)"
+                aria-label="Cancel reply"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Active Edit Message Banner */}
           {editingMessage && (
             <div className="composer-edit-banner">
@@ -1162,6 +1393,40 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               >
                 ✕
               </button>
+            </div>
+          )}
+
+          {/* Mention Autocomplete Popover */}
+          {showMentionPicker && mentionCandidates.length > 0 && (
+            <div className="mention-autocomplete-popover">
+              <div className="mention-popover-header">
+                <span>MENTION CLASSMATE</span>
+                <span className="mention-hint-kbd">Tab / Enter to select</span>
+              </div>
+              <div className="mention-popover-list">
+                {mentionCandidates.map((c, i) => (
+                  <div
+                    key={c.username}
+                    className={`mention-popover-item ${i === mentionSelectedIndex ? 'active' : ''}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleInsertMention(c.username);
+                    }}
+                    onMouseEnter={() => setMentionSelectedIndex(i)}
+                  >
+                    {c.avatarUrl ? (
+                      <img src={c.avatarUrl} alt={c.username} className="mention-item-avatar" />
+                    ) : (
+                      <div className="mention-item-fallback">
+                        {c.username.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="mention-item-info">
+                      <span className="mention-item-username">@{c.username}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1196,9 +1461,15 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
               <textarea
                 ref={textareaRef}
                 className="composer-text-input"
-                placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
+                placeholder={
+                  editingMessage
+                    ? 'Edit your message...'
+                    : replyingToMessage
+                    ? `Reply to @${replyingToMessage.username}...`
+                    : 'Type a message... (@ to mention)'
+                }
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={handleInputChange}
                 onFocus={() => {
                   setTimeout(() => {
                     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1504,6 +1775,43 @@ export const GlobalChat: React.FC<GlobalChatProps> = ({
 
             {/* Actions List */}
             <div className="mobile-action-items-list">
+              {/* Reply to Message */}
+              <button
+                type="button"
+                className="mobile-action-row-btn reply"
+                onClick={() => {
+                  const target = activeReactionMsg;
+                  setActiveReactionMsgId(null);
+                  if (target) handleStartReply(target);
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 17 4 12 9 7" />
+                  <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                </svg>
+                <span>Reply to Message</span>
+              </button>
+
+              {/* Mention Author if not self */}
+              {Boolean(currentUsername && activeReactionMsg.username.toLowerCase() !== currentUsername.toLowerCase()) && (
+                <button
+                  type="button"
+                  className="mobile-action-row-btn"
+                  onClick={() => {
+                    const author = activeReactionMsg.username.replace(/^@/, '');
+                    setActiveReactionMsgId(null);
+                    setInputText((prev) => (prev ? `${prev} @${author} ` : `@${author} `));
+                    setTimeout(() => textareaRef.current?.focus(), 50);
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+                  </svg>
+                  <span>Mention @{activeReactionMsg.username.replace(/^@/, '')}</span>
+                </button>
+              )}
+
               {/* Copy Message Text */}
               <button
                 type="button"

@@ -16,6 +16,12 @@ export interface UserProfile {
   isApproved?: boolean; // Account approval flag: true once admin verifies entry
 }
 
+export interface ChatReply {
+  id: string;
+  username: string;
+  content: string;
+}
+
 export interface ChatMessage {
   id: string;
   userId?: string;
@@ -27,6 +33,7 @@ export interface ChatMessage {
   reactions?: Record<string, string[]>;
   createdAt: string;
   isEdited?: boolean;
+  replyTo?: ChatReply | null;
 }
 
 export interface ChatGroup {
@@ -159,8 +166,10 @@ const mapChatGroupRow = (row: any, isMember = false): ChatGroup => ({
 const mapGroupMessageRow = (row: any): ChatMessage => {
   const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
   const isEdited = Boolean(rawReactions._edited || row.is_edited);
+  const replyTo: ChatReply | null = rawReactions._reply || null;
   delete rawReactions._edited;
   delete rawReactions._deleted;
+  delete rawReactions._reply;
 
   return {
     id: row.id,
@@ -171,6 +180,7 @@ const mapGroupMessageRow = (row: any): ChatMessage => {
     reactions: rawReactions,
     createdAt: row.created_at,
     isEdited,
+    replyTo,
   };
 };
 
@@ -945,8 +955,10 @@ export const supabaseService = {
           .map((row: any) => {
             const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
             const isEdited = Boolean(rawReactions._edited || row.is_edited);
+            const replyTo: ChatReply | null = rawReactions._reply || null;
             delete rawReactions._edited;
             delete rawReactions._deleted;
+            delete rawReactions._reply;
 
             return {
               id: row.id,
@@ -958,6 +970,7 @@ export const supabaseService = {
               reactions: rawReactions,
               createdAt: row.created_at,
               isEdited,
+              replyTo,
             };
           });
 
@@ -1024,8 +1037,10 @@ export const supabaseService = {
           .map((row: any) => {
             const rawReactions = (row.reactions && typeof row.reactions === 'object') ? { ...row.reactions } : {};
             const isEdited = Boolean(rawReactions._edited || row.is_edited);
+            const replyTo: ChatReply | null = rawReactions._reply || null;
             delete rawReactions._edited;
             delete rawReactions._deleted;
+            delete rawReactions._reply;
 
             return {
               id: row.id,
@@ -1037,6 +1052,7 @@ export const supabaseService = {
               reactions: rawReactions,
               createdAt: row.created_at,
               isEdited,
+              replyTo,
             };
           });
 
@@ -1066,7 +1082,18 @@ export const supabaseService = {
     avatarUrl?: string;
     seatNumber?: number | null;
     content: string;
+    replyTo?: ChatReply | null;
   }): Promise<ChatMessage | null> {
+    const replyMeta = params.replyTo ? { ...params.replyTo } : null;
+    const initialReactions: Record<string, any> = {};
+    if (replyMeta) {
+      initialReactions._reply = {
+        id: replyMeta.id,
+        username: replyMeta.username,
+        content: replyMeta.content.slice(0, 160),
+      };
+    }
+
     const newMessage: ChatMessage = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
       userId: params.userId,
@@ -1076,6 +1103,7 @@ export const supabaseService = {
       content: params.content.trim(),
       reactions: {},
       createdAt: new Date().toISOString(),
+      replyTo: replyMeta,
     };
 
     if (!isSupabaseConfigured()) {
@@ -1094,7 +1122,7 @@ export const supabaseService = {
         content: params.content.trim(),
         avatar_url: params.avatarUrl || null,
         seat_number: params.seatNumber || null,
-        reactions: {},
+        reactions: initialReactions,
       };
       if (params.userId && params.userId.length === 36) {
         payload.user_id = params.userId;
@@ -1114,6 +1142,12 @@ export const supabaseService = {
       if (res.ok) {
         const createdRows = await res.json();
         if (createdRows && createdRows[0]) {
+          const rawReactions = (createdRows[0].reactions && typeof createdRows[0].reactions === 'object') ? { ...createdRows[0].reactions } : {};
+          const confirmedReply = rawReactions._reply || replyMeta || null;
+          delete rawReactions._reply;
+          delete rawReactions._edited;
+          delete rawReactions._deleted;
+
           const confirmed: ChatMessage = {
             id: createdRows[0].id,
             userId: createdRows[0].user_id,
@@ -1121,8 +1155,9 @@ export const supabaseService = {
             avatarUrl: createdRows[0].avatar_url,
             seatNumber: createdRows[0].seat_number,
             content: createdRows[0].content,
-            reactions: createdRows[0].reactions || {},
+            reactions: rawReactions,
             createdAt: createdRows[0].created_at,
+            replyTo: confirmedReply,
           };
           const currentCached = getCachedChatMessages().filter((m) => m.id !== confirmed.id);
           setCachedChatMessages([...currentCached, confirmed]);
@@ -1717,10 +1752,21 @@ export const supabaseService = {
     username: string;
     avatarUrl?: string;
     content: string;
+    replyTo?: ChatReply | null;
   }): Promise<ChatMessage | null> {
     const cleanContent = params.content.trim().slice(0, 1000);
     const cleanUsername = params.username.replace(/^@/, '').trim();
     if (!params.groupId || !cleanContent || !cleanUsername) return null;
+
+    const replyMeta = params.replyTo ? { ...params.replyTo } : null;
+    const initialReactions: Record<string, any> = {};
+    if (replyMeta) {
+      initialReactions._reply = {
+        id: replyMeta.id,
+        username: replyMeta.username,
+        content: replyMeta.content.slice(0, 160),
+      };
+    }
 
     const newMessage: ChatMessage & { groupId: string } = {
       id: `group_msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1731,6 +1777,7 @@ export const supabaseService = {
       content: cleanContent,
       reactions: {},
       createdAt: new Date().toISOString(),
+      replyTo: replyMeta,
     };
 
     if (!isSupabaseConfigured()) {
@@ -1744,7 +1791,7 @@ export const supabaseService = {
         username: cleanUsername,
         avatar_url: params.avatarUrl || null,
         content: cleanContent,
-        reactions: {},
+        reactions: initialReactions,
       };
       if (params.userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.userId)) {
         payload.user_id = params.userId;
@@ -1919,6 +1966,38 @@ export const supabaseService = {
       console.warn('Group message delete warning:', err);
       return false;
     }
+  },
+
+  /**
+   * Fetch registered student profiles for mention autocompletion and directory search
+   */
+  async getClassroomMembers(): Promise<Array<{ username: string; avatarUrl?: string | null }>> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/users?select=username,avatar_url&order=username.asc&limit=100`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (res.ok) {
+        const rows = await res.json();
+        return (rows || [])
+          .filter((r: any) => Boolean(r.username))
+          .map((r: any) => ({
+            username: r.username,
+            avatarUrl: r.avatar_url || null,
+          }));
+      }
+    } catch (err) {
+      console.warn('Supabase get classroom members error:', err);
+    }
+    return [];
   },
 };
 
